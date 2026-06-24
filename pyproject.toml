@@ -57,6 +57,12 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "inflection>=0.5",
     "requests>=2.31",
+    # M2: Typer is the CLI framework for the ``postcards`` console
+    # script (``postcards/cli/``). It pulls in ``click`` and ``rich``
+    # transitively. The legacy console-script entry points
+    # (``postcards-folder``, ``postcards-yaml``, ...) keep their
+    # argparse-based implementation for now.
+    "typer>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -75,7 +81,12 @@ Homepage = "http://github.com/abertschi/postcards"
 Repository = "http://github.com/abertschi/postcards"
 
 [project.scripts]
-postcards = "postcards.postcards:main"
+# M2: the ``postcards`` console script now dispatches to the Typer-
+# based CLI in ``postcards.cli``. The legacy ``Postcards().main``
+# (argparse) is still importable as ``postcards.postcards.main`` for
+# tests and the plugin entry points, but it is no longer the
+# user-facing entry.
+postcards = "postcards.cli.main:main"
 postcards-folder = "postcards.plugin_folder.postcards_folder:main"
 postcards-yaml = "postcards.plugin_folder_yaml.postcards_folder_yaml:main"
 postcards-pexels = "postcards.plugin_pexels.postcards_pexels:main"
@@ -89,9 +100,12 @@ postcards-chuck-norris = "postcards.plugin_chuck_norris.postcards_chuck_norris:m
 packages = [
     "postcards",
     "postcards.backend",
+    "postcards.cli",
+    "postcards.cli.commands",
     "postcards.config",
     "postcards.image",
     "postcards.models",
+    "postcards.render",
     "postcards._vendor",
     "postcards._vendor.postcard_creator",
     "postcards.plugin_chuck_norris",
