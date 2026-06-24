@@ -1,20 +1,26 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
-import sys
-import logging
-from postcard_creator import postcard_creator
+from __future__ import annotations
+
+import argparse
 import base64
 import json
+import logging
 import os
-import argparse
-from argparse import RawTextHelpFormatter
-import urllib
-import inflection
 import random
-import pkg_resources
+import sys
+import urllib.parse
+import urllib.request
+from argparse import RawTextHelpFormatter
+from importlib import resources
+from typing import Any
+
+import inflection
+
 from postcards import __version__
-from postcard_creator import __version__ as postcard_creator_version
+from postcards._vendor.postcard_creator import postcard_creator
+from postcards._vendor.postcard_creator import __version__ as postcard_creator_version
 
 LOGGING_TRACE_LVL = 5
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
@@ -69,7 +75,11 @@ class Postcards:
             self.logger.error('config file already exist in current directory.')
             exit(1)
 
-        content = pkg_resources.resource_string(__name__, 'template_config.json').decode('utf-8')
+        content = (
+            resources.files(__name__)
+            .joinpath('template_config.json')
+            .read_text(encoding='utf-8')
+        )
         file = open(target_location, 'w')
         file.write(content)
         file.close()
