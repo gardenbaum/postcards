@@ -14,25 +14,24 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
 from postcards.schedule.models import (
+    MAX_RECURRING_INTERVAL_DAYS,
     Clock,
     ExecutionResult,
     FakeClock,
     JobOutcome,
     JobStatus,
-    MAX_RECURRING_INTERVAL_DAYS,
     RecurrenceRule,
-    ScheduledJob,
     ScheduleBook,
+    ScheduledJob,
     ScheduleError,
     SystemClock,
     new_job_id,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,7 +121,7 @@ class TestRecurrenceRuleConstruction:
 
     def test_unknown_kind_rejected(self) -> None:
         with pytest.raises(ScheduleError, match="unknown recurrence kind"):
-            RecurrenceRule(kind="monthly")  # type: ignore[arg-type]
+            RecurrenceRule(kind="monthly")
 
 
 class TestRecurrenceRuleFromString:

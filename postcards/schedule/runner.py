@@ -85,7 +85,6 @@ from postcards.addressbook.storage import (
 )
 from postcards.addressbook.variables import TemplateRenderError
 from postcards.backend.base import (
-    AddressSpec,
     PostcardBackend,
     QuotaInfo,
     SendResult,
@@ -98,8 +97,8 @@ from postcards.schedule.models import (
     FakeClock,
     JobOutcome,
     JobStatus,
-    ScheduledJob,
     ScheduleBook,
+    ScheduledJob,
     SystemClock,
 )
 
@@ -303,7 +302,7 @@ def _dispatch_one(
             outcome=JobOutcome.SKIPPED_QUOTA,
             message=f"quota exhausted; rescheduled to {rescheduled_at.isoformat()}",
         )
-    except Exception as exc:  # noqa: BLE001  (intentional catch-all for the runner)
+    except Exception as exc:
         updated = job.with_status(
             JobStatus.FAILED,
             last_run_at=now,
@@ -332,7 +331,7 @@ def _dispatch_one(
 
     try:
         next_run = job.recurrence.advance(now)
-    except Exception as exc:  # noqa: BLE001  (defensive — see RecurrenceRule.advance)
+    except Exception as exc:
         updated = job.with_status(
             JobStatus.FAILED,
             last_run_at=now,
@@ -356,8 +355,7 @@ def _dispatch_one(
         job_id=job.id,
         outcome=JobOutcome.RESCHEDULED_RECURRING,
         message=(
-            f"sent; confirmation={result.confirmation or 'n/a'}; "
-            f"next run at {next_run.isoformat()}"
+            f"sent; confirmation={result.confirmation or 'n/a'}; next run at {next_run.isoformat()}"
         ),
         confirmation=result.confirmation,
     )
@@ -402,9 +400,7 @@ def _resolve_endpoints(
     """
     recipient = address_book.find(job.recipient_name)
     if recipient is None:
-        raise _EndpointResolutionError(
-            f"no address-book entry named {job.recipient_name!r}"
-        )
+        raise _EndpointResolutionError(f"no address-book entry named {job.recipient_name!r}")
     if recipient.category is not AddressCategory.RECIPIENT:
         raise _EndpointResolutionError(
             f"address-book entry {job.recipient_name!r} is a "
@@ -413,13 +409,10 @@ def _resolve_endpoints(
     if job.sender_name:
         sender = address_book.find(job.sender_name)
         if sender is None:
-            raise _EndpointResolutionError(
-                f"no address-book entry named {job.sender_name!r}"
-            )
+            raise _EndpointResolutionError(f"no address-book entry named {job.sender_name!r}")
         if sender.category is not AddressCategory.SENDER:
             raise _EndpointResolutionError(
-                f"address-book entry {job.sender_name!r} is a "
-                f"{sender.category.value}, not a sender"
+                f"address-book entry {job.sender_name!r} is a {sender.category.value}, not a sender"
             )
         return recipient, sender
     # No explicit sender — synthesise a sender entry that mirrors
@@ -468,9 +461,7 @@ def _render_message(job: ScheduledJob) -> str | _MessageRenderError:
         except TemplateError as exc:
             return _MessageRenderError(str(exc))
         if template is None:
-            return _MessageRenderError(
-                f"no template named {job.message_template_name!r}"
-            )
+            return _MessageRenderError(f"no template named {job.message_template_name!r}")
         try:
             return template.render(job.template_variables)
         except TemplateRenderError as exc:
@@ -533,7 +524,7 @@ def _read_picture(location: str) -> bytes:
             "Accept": "*/*",
         }
         request = urllib.request.Request(location, headers=headers)
-        with urllib.request.urlopen(request) as response:  # noqa: S310
+        with urllib.request.urlopen(request) as response:
             return response.read()
     with open(location, "rb") as handle:
         return handle.read()
@@ -570,9 +561,7 @@ def _send_via_backend(
     backend.login(username, password)
     quota = backend.quota()
     if not quota.available:
-        raise QuotaExhaustedError(
-            _quota_message(quota)
-        )
+        raise QuotaExhaustedError(_quota_message(quota))
 
     return backend.send(postcard, mock=False)
 
@@ -605,8 +594,8 @@ def _next_quota_window(now: datetime) -> datetime:
 
 __all__ = [
     "BackendFactory",
+    "FakeClock",
     "QuotaExhaustedError",
     "SystemClock",
-    "FakeClock",
     "run_due_jobs",
 ]

@@ -15,8 +15,8 @@ import pytest
 from postcards.schedule import (
     JobStatus,
     RecurrenceRule,
-    ScheduledJob,
     ScheduleBook,
+    ScheduledJob,
     load_schedule_book,
     save_schedule_book,
 )

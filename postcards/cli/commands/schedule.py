@@ -36,13 +36,12 @@ to stderr so they show up in the cron log.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 
 import typer
 
 from postcards import __version__ as _postcards_version
+from postcards.backend.base import PostcardBackend
 from postcards.cli.app import app
 from postcards.cli.errors import raise_cli_error
 from postcards.cli.options import backend_option, password_option, username_option
@@ -51,7 +50,6 @@ from postcards.schedule import (
     JobStatus,
     RecurrenceRule,
     ScheduledJob,
-    ScheduleBook,
     SystemClock,
     load_schedule_book,
     new_job_id,
@@ -106,10 +104,7 @@ def _parse_at(value: str) -> datetime:
             parsed = datetime.fromisoformat(candidate)
         except ValueError:
             continue
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        else:
-            parsed = parsed.astimezone(UTC)
+        parsed = parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
         return parsed
     raise_cli_error(
         f"--at {value!r} is not a valid timestamp; expected "
@@ -190,9 +185,9 @@ def schedule_add_cmd(
     a usage error rather than a runtime failure on the next
     ``schedule run``.
     """
-    from postcards.cli.commands.send import _parse_var as parse_var  # local import to avoid cycle
-    from postcards.addressbook.storage import load_address_book
     from postcards.addressbook.models import AddressCategory
+    from postcards.addressbook.storage import load_address_book
+    from postcards.cli.commands.send import _parse_var as parse_var  # local import to avoid cycle
 
     if message_template is not None and message:
         raise_cli_error(
@@ -236,10 +231,7 @@ def schedule_add_cmd(
     clock = SystemClock()
     now = clock.now()
     if rule.kind == "none":
-        if at is None:
-            next_run = now
-        else:
-            next_run = _parse_at(at)
+        next_run = now if at is None else _parse_at(at)
     else:
         # ``advance`` returns strictly-after ``current``, so the
         # first fire of a recurring job is always in the future.
@@ -436,11 +428,13 @@ def schedule_retry_cmd(
 # ---------------------------------------------------------------------------
 
 
-def _select_runtime_backend(env_override: str | None) -> tuple[str, object]:
-    """Return ``(env_var, payload)`` for ``select_backend``.
+def _select_runtime_backend(env_override: str | None) -> tuple[str, PostcardBackend]:
+    """Return ``(env_var, backend)`` for ``select_backend``.
 
     Splits out the backend-selection plumbing so :func:`schedule_run_cmd`
-    stays readable.
+    stays readable. The first tuple element is the env-var value
+    the caller passed (or ``""`` when no override was given);
+    the second is the constructed backend instance.
     """
     from postcards.backend.registry import select_backend
 
@@ -453,7 +447,6 @@ def _select_runtime_backend(env_override: str | None) -> tuple[str, object]:
 @schedule_app.command(
     name="run",
     help="Dispatch every due job against the configured backend.",
-    no_args_is_help=True,
 )
 def schedule_run_cmd(
     dry_run: bool = typer.Option(
@@ -497,9 +490,9 @@ def schedule_run_cmd(
         return
 
     clock = FakeClock(_parse_at(fake_now)) if fake_now else SystemClock()
-    backend_name, backend_instance = _select_runtime_backend(backend)
+    _backend_name, backend_instance = _select_runtime_backend(backend)
 
-    def factory() -> object:
+    def factory() -> PostcardBackend:
         return backend_instance
 
     new_book, results = run_due_jobs(

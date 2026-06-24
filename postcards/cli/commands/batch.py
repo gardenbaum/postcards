@@ -192,8 +192,7 @@ def _parse_csv_manifest(text: str) -> list[ManifestEntry]:
     reader = csv.DictReader(io.StringIO(text))
     if reader.fieldnames is None or "to" not in reader.fieldnames:
         raise_cli_error(
-            "CSV manifest must have a 'to' column; "
-            f"got columns {reader.fieldnames!r}",
+            f"CSV manifest must have a 'to' column; got columns {reader.fieldnames!r}",
             exit_code=2,
         )
     entries: list[ManifestEntry] = []
@@ -201,8 +200,7 @@ def _parse_csv_manifest(text: str) -> list[ManifestEntry]:
         name = (row.get("to") or "").strip()
         if not name:
             raise_cli_error(
-                "CSV manifest row has empty 'to' column; "
-                "every row must name a recipient",
+                "CSV manifest row has empty 'to' column; every row must name a recipient",
                 exit_code=2,
             )
         var_column = row.get("var") or ""
@@ -342,6 +340,44 @@ def _empty_to_none(value: object) -> str | None:
     if isinstance(value, str):
         return value or None
     return str(value)
+
+
+def _manifest_provides_message(manifest: Path | None) -> bool:
+    """Return ``True`` when ``manifest`` declares a message column / key.
+
+    Used by the CLI's input-validation guard so a manifest
+    that already provides per-recipient messages is accepted
+    without an additional ``--message`` / ``--picture`` flag.
+    A parse error here is treated as "no message column" so
+    the user still sees the "either ... is required" error
+    rather than a confusing manifest parse failure before
+    they have supplied any other inputs.
+    """
+    if manifest is None:
+        return False
+    try:
+        text = _read_manifest_text(manifest)
+    except Exception:
+        return False
+    suffix = manifest.suffix.lower()
+    if suffix in {".yaml", ".yml"}:
+        try:
+            payload = yaml.safe_load(text)
+        except yaml.YAMLError:
+            return False
+        items = payload.get("recipients", []) if isinstance(payload, dict) else payload
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if isinstance(item, dict) and _empty_to_none(item.get("message")) is not None:
+                return True
+        return False
+    # CSV: peek at the header for a ``message`` column.
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+    except csv.Error:
+        return False
+    return reader.fieldnames is not None and "message" in reader.fieldnames
 
 
 # ---------------------------------------------------------------------------
@@ -536,8 +572,10 @@ def _dispatch_recipient(
             sent=False,
             error=f"send failed (exit code {exc.code})",
         )
-    except Exception as exc:  # noqa: BLE001 — keep the batch going
-        return BatchOutcome(name=recipient.name, sent=False, error=str(exc) or exc.__class__.__name__)
+    except Exception as exc:
+        return BatchOutcome(
+            name=recipient.name, sent=False, error=str(exc) or exc.__class__.__name__
+        )
     return BatchOutcome(name=recipient.name, sent=True)
 
 
@@ -662,9 +700,15 @@ def batch_cmd(
         book=book,
     )
 
-    if picture is None and message is None and message_template is None:
+    if (
+        picture is None
+        and message is None
+        and message_template is None
+        and not _manifest_provides_message(manifest)
+    ):
         raise_cli_error(
-            "either --picture, --message, or --message-template is required",
+            "either --picture, --message, --message-template, or a per-recipient "
+            "message column/key in --manifest is required",
             exit_code=2,
         )
     if message_template is not None and message:
@@ -703,9 +747,7 @@ def batch_cmd(
             book=book,
         )
         effective_picture = (row.picture if row else None) or picture
-        effective_message_template = (
-            (row.message_template if row else None) or message_template
-        )
+        effective_message_template = (row.message_template if row else None) or message_template
         effective_message_input: list[str] | None = message
         if row is not None and row.message is not None:
             # A per-recipient message replaces the shared one.

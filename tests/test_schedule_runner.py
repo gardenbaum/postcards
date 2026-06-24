@@ -13,9 +13,9 @@ deterministically without sleeping.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -23,9 +23,10 @@ from postcards.addressbook.models import (
     AddressBook,
     AddressBookEntry,
     AddressCategory,
+    MessageTemplate,
+    TemplateBook,
 )
 from postcards.addressbook.storage import save_address_book, save_template_book
-from postcards.addressbook.models import MessageTemplate, TemplateBook
 from postcards.backend.base import AddressSpec, QuotaInfo
 from postcards.backend.mock import MockBackend
 from postcards.schedule import (
@@ -33,12 +34,11 @@ from postcards.schedule import (
     JobOutcome,
     JobStatus,
     RecurrenceRule,
-    ScheduledJob,
     ScheduleBook,
+    ScheduledJob,
     run_due_jobs,
 )
 from postcards.schedule.runner import QuotaExhaustedError
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -62,7 +62,9 @@ def alice_entry() -> AddressBookEntry:
 
 
 @pytest.fixture
-def address_book(alice_entry: AddressBookEntry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AddressBook:
+def address_book(
+    alice_entry: AddressBookEntry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AddressBook:
     """Return an :class:`AddressBook` with one recipient, persisted."""
     book = AddressBook(entries=(alice_entry,))
     monkeypatch.setenv("POSTCARDS_DATA_DIR", str(tmp_path))
@@ -73,11 +75,7 @@ def address_book(alice_entry: AddressBookEntry, tmp_path: Path, monkeypatch: pyt
 @pytest.fixture
 def template_book(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TemplateBook:
     """Return a :class:`TemplateBook` with a single ``greeting`` template."""
-    book = TemplateBook(
-        templates=(
-            MessageTemplate(name="greeting", body="Hi $name!"),
-        )
-    )
+    book = TemplateBook(templates=(MessageTemplate(name="greeting", body="Hi $name!"),))
     monkeypatch.setenv("POSTCARDS_DATA_DIR", str(tmp_path))
     save_template_book(book)
     return book
@@ -120,7 +118,7 @@ def _job(
     )
 
 
-def _factory(backend: MockBackend):
+def _factory(backend: MockBackend) -> Callable[[], MockBackend]:
     """Build a backend factory that returns the same backend instance each call."""
 
     def factory() -> MockBackend:
@@ -135,7 +133,9 @@ def _factory(backend: MockBackend):
 
 
 class TestSuccessfulDispatch:
-    def test_due_one_shot_job_is_sent(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_due_one_shot_job_is_sent(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         job = _job(next_run_at=datetime(2026, 6, 24, 9, 0, tzinfo=UTC))
         book = ScheduleBook(jobs=(job,))
@@ -153,7 +153,9 @@ class TestSuccessfulDispatch:
         assert new_book.jobs[0].status is JobStatus.COMPLETED
         assert new_book.jobs[0].last_confirmation == "mock-0"
 
-    def test_sender_defaults_to_recipient(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_sender_defaults_to_recipient(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         job = _job()
         book = ScheduleBook(jobs=(job,))
@@ -167,7 +169,9 @@ class TestSuccessfulDispatch:
 
         assert backend.sent[0].postcard.sender.lastname == "Doe"
 
-    def test_message_is_passed_through(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_message_is_passed_through(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         job = _job(message="Hi from Zurich")
         book = ScheduleBook(jobs=(job,))
@@ -222,7 +226,9 @@ class TestSuccessfulDispatch:
 
 
 class TestRecurringJobs:
-    def test_every_n_days_advances_next_run(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_every_n_days_advances_next_run(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         job = _job(
             next_run_at=datetime(2026, 6, 24, 9, 0, tzinfo=UTC),
@@ -243,7 +249,9 @@ class TestRecurringJobs:
         # Job stays pending.
         assert new_book.jobs[0].status is JobStatus.PENDING
 
-    def test_weekly_advances_to_next_matching_day(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_weekly_advances_to_next_matching_day(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         # 2026-06-24 is a Wednesday.
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         job = _job(
@@ -270,7 +278,9 @@ class TestRecurringJobs:
 
 
 class TestSkippedJobs:
-    def test_job_in_the_future_is_skipped(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_job_in_the_future_is_skipped(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 0, tzinfo=UTC))
         job = _job(next_run_at=datetime(2026, 6, 25, 9, 0, tzinfo=UTC))
         book = ScheduleBook(jobs=(job,))
@@ -286,7 +296,9 @@ class TestSkippedJobs:
         assert new_book is book  # unchanged
         assert backend.sent == []
 
-    def test_completed_job_is_skipped(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_completed_job_is_skipped(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 0, tzinfo=UTC))
         job = _job(status=JobStatus.COMPLETED)
         book = ScheduleBook(jobs=(job,))
@@ -309,12 +321,12 @@ class TestSkippedJobs:
 
 
 class TestQuota:
-    def test_exhausted_quota_reschedules_to_next_midnight(
-        self, address_book: AddressBook
-    ) -> None:
+    def test_exhausted_quota_reschedules_to_next_midnight(self, address_book: AddressBook) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         backend = MockBackend(
-            quota_info=QuotaInfo(available=False, next_available_at=datetime(2026, 6, 25, 0, 0, tzinfo=UTC))
+            quota_info=QuotaInfo(
+                available=False, next_available_at=datetime(2026, 6, 25, 0, 0, tzinfo=UTC)
+            )
         )
         job = _job()
         book = ScheduleBook(jobs=(job,))
@@ -333,9 +345,7 @@ class TestQuota:
         assert "quota" in (new_book.jobs[0].last_error or "").lower()
         assert backend.sent == []
 
-    def test_quota_exhausted_error_can_be_caught_directly(
-        self, address_book: AddressBook
-    ) -> None:
+    def test_quota_exhausted_error_can_be_caught_directly(self, address_book: AddressBook) -> None:
         # The runner raises QuotaExhaustedError when the backend
         # reports an unavailable quota. Use the runner path so
         # the exception actually fires — the MockBackend itself
@@ -343,7 +353,9 @@ class TestQuota:
         # ``quota_info`` for ``backend.quota()``.
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         backend = MockBackend(
-            quota_info=QuotaInfo(available=False, next_available_at=datetime(2026, 6, 25, 0, 0, tzinfo=UTC))
+            quota_info=QuotaInfo(
+                available=False, next_available_at=datetime(2026, 6, 25, 0, 0, tzinfo=UTC)
+            )
         )
         job = _job()
         book = ScheduleBook(jobs=(job,))
@@ -371,7 +383,9 @@ class TestQuota:
 
 
 class TestErrors:
-    def test_missing_recipient_marks_job_failed(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_missing_recipient_marks_job_failed(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         job = _job(recipient_name="nobody")
         book = ScheduleBook(jobs=(job,))
@@ -430,7 +444,9 @@ class TestErrors:
 
 
 class TestDryRun:
-    def test_dry_run_does_not_call_send(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_dry_run_does_not_call_send(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         job = _job()
         book = ScheduleBook(jobs=(job,))
@@ -455,7 +471,9 @@ class TestDryRun:
 
 
 class TestMultiJobWalks:
-    def test_empty_book_returns_empty_results(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_empty_book_returns_empty_results(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         new_book, results = run_due_jobs(
             ScheduleBook(),
@@ -502,7 +520,9 @@ class TestMultiJobWalks:
 
 
 class TestValueTypeDiscipline:
-    def test_unchanged_jobs_return_same_book(self, address_book: AddressBook, backend: MockBackend) -> None:
+    def test_unchanged_jobs_return_same_book(
+        self, address_book: AddressBook, backend: MockBackend
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         # Job in the future — nothing to do.
         job = _job(next_run_at=datetime(2026, 6, 25, 9, 0, tzinfo=UTC))
@@ -524,7 +544,9 @@ class TestValueTypeDiscipline:
 
 
 class TestPictureHandling:
-    def test_local_picture_is_loaded_into_postcard(self, address_book: AddressBook, backend: MockBackend, tmp_path: Path) -> None:
+    def test_local_picture_is_loaded_into_postcard(
+        self, address_book: AddressBook, backend: MockBackend, tmp_path: Path
+    ) -> None:
         clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
         picture = tmp_path / "pic.jpg"
         # Smallest possible valid JPEG header + content (just some bytes).

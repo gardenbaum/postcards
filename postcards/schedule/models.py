@@ -261,9 +261,7 @@ class RecurrenceRule:
         try:
             kind = payload["kind"]
         except KeyError as exc:
-            raise ScheduleError(
-                f"recurrence rule missing required field: {exc.args[0]}"
-            ) from exc
+            raise ScheduleError(f"recurrence rule missing required field: {exc.args[0]}") from exc
         return cls(
             kind=str(kind),
             interval_days=int(payload.get("interval_days", 0)),
@@ -304,7 +302,9 @@ class RecurrenceRule:
             # ``range(1, 8)`` always finds a match because the
             # weekdays tuple is non-empty (validated in
             # ``__post_init__``).
-            raise ScheduleError("unreachable: weekly recurrence has no matching weekday")  # pragma: no cover
+            raise ScheduleError(
+                "unreachable: weekly recurrence has no matching weekday"
+            )  # pragma: no cover
         raise ScheduleError(f"unknown recurrence kind {self.kind!r}")  # pragma: no cover
 
     def describe(self) -> str:
@@ -368,9 +368,7 @@ class ScheduledJob:
         if not isinstance(self.id, str) or not self.id:
             raise ScheduleError("job id must be a non-empty string")
         if not isinstance(self.status, JobStatus):
-            raise ScheduleError(
-                f"job status must be a JobStatus, got {type(self.status).__name__}"
-            )
+            raise ScheduleError(f"job status must be a JobStatus, got {type(self.status).__name__}")
         if not isinstance(self.recurrence, RecurrenceRule):
             raise ScheduleError(
                 f"job recurrence must be a RecurrenceRule, got {type(self.recurrence).__name__}"
@@ -673,7 +671,9 @@ class FakeClock:
     def now(self) -> datetime:
         return self.current
 
-    def advance(self, *, seconds: float = 0, minutes: float = 0, hours: float = 0, days: float = 0) -> None:
+    def advance(
+        self, *, seconds: float = 0, minutes: float = 0, hours: float = 0, days: float = 0
+    ) -> None:
         """Move the clock forward by the given delta.
 
         ``seconds`` / ``minutes`` / ``hours`` / ``days`` are
@@ -771,7 +771,9 @@ def _parse_isoformat(value: object, field_name: str) -> datetime:
         normalised = value.replace("Z", "+00:00")
         parsed = datetime.fromisoformat(normalised)
     except ValueError as exc:
-        raise ScheduleError(f"{field_name} {value!r} is not a valid ISO-8601 timestamp: {exc}") from exc
+        raise ScheduleError(
+            f"{field_name} {value!r} is not a valid ISO-8601 timestamp: {exc}"
+        ) from exc
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed
@@ -796,16 +798,16 @@ def new_job_id() -> str:
 
 
 __all__ = [
+    "MAX_RECURRING_INTERVAL_DAYS",
     "Clock",
     "ExecutionResult",
     "FakeClock",
     "JobOutcome",
     "JobStatus",
-    "MAX_RECURRING_INTERVAL_DAYS",
     "RecurrenceRule",
-    "ScheduledJob",
     "ScheduleBook",
     "ScheduleError",
+    "ScheduledJob",
     "SystemClock",
     "new_job_id",
 ]
