@@ -54,7 +54,6 @@ def config_init(
         "-f",
         "--force",
         help="Overwrite an existing file at the destination.",
-        is_flag=True,
     ),
 ) -> None:
     """Write a starter config file at the resolved path.

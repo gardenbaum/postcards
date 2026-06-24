@@ -112,7 +112,6 @@ def dry_run_option(
         False,
         "--dry-run",
         help=help_text,
-        is_flag=True,
     )
 
 
@@ -126,7 +125,6 @@ def mock_option() -> bool:
             "Prefer --dry-run; --mock will be removed in a future release."
         ),
         hidden=True,
-        is_flag=True,
     )
 
 
@@ -153,7 +151,6 @@ def all_accounts_option() -> bool:
             "Send one card per valid account (the default stops at the first "
             "account that has a free quota)."
         ),
-        is_flag=True,
     )
 
 
@@ -164,7 +161,6 @@ def yes_option() -> bool:
         "-y",
         "--yes",
         help="Skip the confirmation prompt.",
-        is_flag=True,
     )
 
 

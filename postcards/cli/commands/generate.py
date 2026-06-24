@@ -37,13 +37,11 @@ def generate_cmd(
         "-f",
         "--force",
         help="Overwrite an existing config file at the destination.",
-        is_flag=True,
     ),
     advanced: bool = typer.Option(
         False,
         "--advanced",
         help="Use the advanced template (more fields, comments).",
-        is_flag=True,
     ),
 ) -> None:
     """Write the bundled template to ``--output``.
