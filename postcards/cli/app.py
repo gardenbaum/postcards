@@ -21,12 +21,14 @@ Subcommands
 The command modules are split by domain:
 
 * :mod:`.commands.send`     — ``postcards send``
+* :mod:`.commands.batch`    — ``postcards batch`` (M4)
 * :mod:`.commands.preview`  — ``postcards preview``
 * :mod:`.commands.generate` — ``postcards generate``
 * :mod:`.commands.config`   — ``postcards config {init,show,set}``
 * :mod:`.commands.accounts` — ``postcards accounts {add,list,use}``
 * :mod:`.commands.addresses` — ``postcards addresses {add,list,show,update,remove}``
 * :mod:`.commands.templates` — ``postcards templates {add,list,show,update,render,remove}``
+* :mod:`.commands.schedule` — ``postcards schedule {add,list,show,remove,retry,run}`` (M4)
 * :mod:`.commands.quota`    — ``postcards quota``
 * :mod:`.commands.status`   — ``postcards status``
 * :mod:`.commands.credentials` — ``postcards encrypt`` / ``postcards decrypt``
@@ -126,6 +128,7 @@ def _root_callback(
 from postcards.cli.commands import (  # noqa: E402, F401  (import-after-callback intentional)
     accounts,
     addresses,
+    batch,
     config,
     credentials,
     generate,
@@ -133,6 +136,7 @@ from postcards.cli.commands import (  # noqa: E402, F401  (import-after-callback
     plugins,
     preview,
     quota,
+    schedule,
     send,
     status,
     templates,
