@@ -201,11 +201,14 @@ def run_due_jobs(
             address_book=address_book,
             dry_run=dry_run,
         )
+        # ``result`` is always returned; only the book rebuild
+        # is skipped when the job is unchanged. Skipped jobs
+        # (not-due / bad-status) still appear in the results so
+        # callers can summarise what the runner saw.
+        results.append(result)
         if updated_job is job:
-            # No change; do not pay for a book rebuild.
             continue
         new_book = new_book.update(updated_job)
-        results.append(result)
     return new_book, results
 
 
