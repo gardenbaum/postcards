@@ -17,11 +17,11 @@ monkey-patch the shim's ``has_valid_credentials`` first.
 Send
 ----
 
-:meth:`send` translates the protocol-level :class:`PostcardSpec` into
-the shim's ``Sender`` / ``Recipient`` / ``Postcard`` types and calls
-``PostcardCreator.send_free_card``. The vendored shim's impl raises
-``NotImplementedError`` for non-mock sends; tests that exercise the
-send flow patch ``PostcardCreatorBase.send_free_card``.
+:meth:`send` translates the user-facing :class:`postcards.models.Postcard`
+into the shim's ``Sender`` / ``Recipient`` / ``Postcard`` types and
+calls ``PostcardCreator.send_free_card``. The picture bytes on the
+``Postcard`` are wrapped in a fresh ``io.BytesIO`` because the shim
+takes a file-like object.
 
 Quota
 -----
@@ -37,7 +37,6 @@ from typing import TYPE_CHECKING
 
 from postcards.backend.base import (
     PostcardBackend,
-    PostcardSpec,
     PreviewInfo,
     QuotaInfo,
     SendResult,
@@ -47,6 +46,7 @@ if TYPE_CHECKING:
     # Imported only for type checking; the runtime imports live inside
     # the methods so importing this module never pulls the shim in.
     from postcards._vendor.postcard_creator.postcard_creator import Token  # noqa: F401
+    from postcards.models.postcard import Postcard
 
 
 class SwissIdConsumerBackend:
@@ -54,8 +54,8 @@ class SwissIdConsumerBackend:
 
     The backend is intentionally thin — it owns the :class:`Token`
     instance for the lifetime of one CLI invocation and translates
-    between the protocol's dataclasses and the shim's data classes.
-    The shim is the actual API client.
+    between the user-facing :class:`postcards.models.Postcard` and
+    the shim's data classes. The shim is the actual API client.
     """
 
     name: str = "swissid"
@@ -103,7 +103,7 @@ class SwissIdConsumerBackend:
             return QuotaInfo(available=True, retention_days=1)
         return QuotaInfo.from_dict(pcc.get_quota())
 
-    def preview(self, card: PostcardSpec) -> PreviewInfo:
+    def preview(self, card: Postcard) -> PreviewInfo:
         """Return a default preview.
 
         The upstream consumer flow has no preview endpoint — the
@@ -113,25 +113,36 @@ class SwissIdConsumerBackend:
         """
         return PreviewInfo(postcard=card)
 
-    def send(self, card: PostcardSpec, *, mock: bool = False) -> SendResult:
+    def send(self, card: Postcard, *, mock: bool = False) -> SendResult:
         """Send a postcard via the shim.
 
-        Translates :class:`PostcardSpec` → ``Sender`` / ``Recipient``
-        / ``Postcard`` and calls ``PostcardCreator.send_free_card``.
-        ``mock`` maps directly to the shim's ``mock_send`` argument.
+        Translates :class:`postcards.models.Postcard` → ``Sender`` /
+        ``Recipient`` / ``Postcard`` and calls
+        ``PostcardCreator.send_free_card``. ``mock`` maps directly
+        to the shim's ``mock_send`` argument.
+
+        The picture bytes on ``card`` are wrapped in a fresh
+        :class:`io.BytesIO` because the shim's API takes a file-like
+        object rather than raw bytes.
         """
         self._require_authenticated()
         if not card.is_valid():
-            raise ValueError("PostcardSpec is invalid: sender or recipient missing required fields")
+            raise ValueError("Postcard is invalid: sender or recipient missing required fields")
 
         from postcards._vendor.postcard_creator import (
-            Postcard,
+            Postcard as ShimPostcard,
+        )
+        from postcards._vendor.postcard_creator import (
             PostcardCreator,
-            Recipient,
-            Sender,
+        )
+        from postcards._vendor.postcard_creator import (
+            Recipient as ShimRecipient,
+        )
+        from postcards._vendor.postcard_creator import (
+            Sender as ShimSender,
         )
 
-        recipient = Recipient(
+        recipient = ShimRecipient(
             prename=card.recipient.prename,
             lastname=card.recipient.lastname,
             street=card.recipient.street,
@@ -141,7 +152,7 @@ class SwissIdConsumerBackend:
             company_addition=card.recipient.company_addition,
             salutation=card.recipient.salutation,
         )
-        sender = Sender(
+        sender = ShimSender(
             prename=card.sender.prename,
             lastname=card.sender.lastname,
             street=card.sender.street,
@@ -150,11 +161,11 @@ class SwissIdConsumerBackend:
             company=card.sender.company,
             country=card.sender.country,
         )
-        pc_card = Postcard(
+        pc_card = ShimPostcard(
             sender=sender,
             recipient=recipient,
-            picture_stream=card.picture,
-            message=card.message,
+            picture_stream=card.open_picture(),
+            message=card.message.text,
         )
 
         pcc = PostcardCreator(self._token)  # type: ignore[arg-type]

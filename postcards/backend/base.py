@@ -13,8 +13,8 @@ with :func:`typing.runtime_checkable` so that test fixtures can assert
 ``isinstance(backend, PostcardBackend)`` against third-party mocks
 without an explicit ``register`` call.
 
-Dataclasses
------------
+Public payloads
+---------------
 
 The payloads exchanged with a backend are simple frozen dataclasses so
 they can be hashed, compared with ``==``, and printed in tracebacks
@@ -23,6 +23,23 @@ without surprises. They are intentionally **not** the
 live in the vendored shim and are tied to its specific call signature.
 The backend protocol speaks its own language; the SwissID wrapper
 translates to/from the shim's classes inside :meth:`SwissIdConsumerBackend.send`.
+
+User-facing vs. transport payloads
+-----------------------------------
+
+There are two postcard types in the project:
+
+* :class:`postcards.models.Postcard` — the user-facing model built
+  via :meth:`postcards.models.Postcard.from_image`. Its
+  ``picture`` field carries **processed JPEG bytes**.
+* :class:`PostcardSpec` — the protocol-level transport payload.
+  Its ``picture`` field carries a **file-like** ``BinaryIO`` ready
+  to feed into the shim.
+
+The protocol's :meth:`PostcardBackend.send` accepts the user-facing
+:class:`postcards.models.Postcard`. The SwissID wrapper translates
+to :class:`PostcardSpec` internally because the shim's API takes a
+file-like; the in-memory mock stores the ``Postcard`` directly.
 
 Quota shape
 -----------
@@ -41,7 +58,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, BinaryIO, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, BinaryIO, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    # Imported only under ``TYPE_CHECKING`` so this module does not
+    # pull the user-facing models (and therefore the image pipeline)
+    # into callers that only need the protocol's runtime types.
+    from postcards.models.postcard import Postcard
 
 
 @dataclass(frozen=True)
@@ -73,16 +96,19 @@ class AddressSpec:
 
 @dataclass(frozen=True)
 class PostcardSpec:
-    """A postcard payload ready to be handed to a backend.
+    """Internal transport payload — ``picture`` is a file-like stream.
 
-    ``picture`` is a binary file-like (``open(..., 'rb')``, ``BytesIO``,
-    ``http.client.HTTPResponse``). The backend reads from it once and
-    does not close it; the caller owns the lifecycle.
+    The SwissID wrapper builds a :class:`PostcardSpec` from the
+    user-facing :class:`postcards.models.Postcard` and forwards it
+    to the vendored shim. The shim's API takes a file-like object
+    (``open(...)``, ``BytesIO``, an ``http.client.HTTPResponse``)
+    rather than raw bytes, so :class:`PostcardSpec` carries
+    ``BinaryIO | None``.
 
-    A postcard is valid when both addresses are valid AND at least one
-    of ``message`` / ``picture`` carries content. The Swiss Post web
-    flow allows either text or image; the CLI historically always
-    sends an image.
+    Most callers should construct :class:`postcards.models.Postcard`
+    instead and let the backend translate. ``PostcardSpec`` exists
+    for the protocol-level tests and for backends that want to
+    short-circuit the user-facing layer.
     """
 
     sender: AddressSpec
@@ -153,7 +179,7 @@ class PreviewInfo:
     backend wants to surface to the user before sending.
     """
 
-    postcard: PostcardSpec
+    postcard: Postcard
     estimated_send_at: datetime | None = None
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
@@ -171,7 +197,7 @@ class SendResult:
     account: str
     sent_at: datetime
     mock: bool
-    postcard: PostcardSpec
+    postcard: Postcard
     confirmation: str | None = None
 
     @classmethod
@@ -181,7 +207,7 @@ class SendResult:
         backend: str,
         account: str,
         mock: bool,
-        postcard: PostcardSpec,
+        postcard: Postcard,
         confirmation: str | None = None,
     ) -> SendResult:
         """Construct a :class:`SendResult` stamped with the current UTC time."""
@@ -228,17 +254,26 @@ class PostcardBackend(Protocol):
         """
         ...
 
-    def preview(self, card: PostcardSpec) -> PreviewInfo:
+    def preview(self, card: Postcard) -> PreviewInfo:
         """Return what would happen if ``card`` were sent.
 
+        ``card`` is the user-facing :class:`postcards.models.Postcard`;
+        backends typically use it for "you are about to send X to Y"
+        renderings without consuming the daily quota.
+
         Implementations should NOT perform any side effects; this is
-        a dry-run that lets the CLI render "you are about to send X
-        to Y" screens without consuming the daily quota.
+        a dry-run.
         """
         ...
 
-    def send(self, card: PostcardSpec, *, mock: bool = False) -> SendResult:
+    def send(self, card: Postcard, *, mock: bool = False) -> SendResult:
         """Send a postcard.
+
+        ``card`` is the user-facing :class:`postcards.models.Postcard`
+        the caller built via :meth:`postcards.models.Postcard.from_image`
+        (or via direct construction). Implementations that need the
+        shim's file-like API translate to :class:`PostcardSpec`
+        internally (see :meth:`SwissIdConsumerBackend.send`).
 
         ``mock=True`` requests a dry-run; implementations MUST NOT
         perform any side effects in that mode. ``mock=False`` is a

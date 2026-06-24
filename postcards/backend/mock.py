@@ -19,14 +19,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from postcards.backend.base import (
     PostcardBackend,
-    PostcardSpec,
     PreviewInfo,
     QuotaInfo,
     SendResult,
 )
+
+if TYPE_CHECKING:
+    from postcards.models.postcard import Postcard
 
 
 @dataclass
@@ -71,13 +74,13 @@ class MockBackend:
         """Return the configured :class:`QuotaInfo`."""
         return self.quota_info
 
-    def preview(self, card: PostcardSpec) -> PreviewInfo:
+    def preview(self, card: Postcard) -> PreviewInfo:
         """Record the preview and return a default :class:`PreviewInfo`."""
         info = PreviewInfo(postcard=card)
         self.previews.append(info)
         return info
 
-    def send(self, card: PostcardSpec, *, mock: bool = False) -> SendResult:
+    def send(self, card: Postcard, *, mock: bool = False) -> SendResult:
         """Record the send and return a :class:`SendResult`.
 
         The mock never raises on invalid cards — validation is the
