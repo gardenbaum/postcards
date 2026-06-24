@@ -127,6 +127,7 @@ from postcards.cli.commands import (  # noqa: E402, F401  (import-after-callback
     credentials,
     generate,
     legacy,
+    plugins,
     preview,
     quota,
     send,

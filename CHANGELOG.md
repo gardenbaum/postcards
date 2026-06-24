@@ -233,6 +233,157 @@ as is practical for a wrapper around an unofficial upstream API.
   on the ``--output`` flow: PNG / PDF writes, text-only
   cards, URL rejection, unsupported-extension rejection).
 
+- **M3 — modern plugin architecture.** Replaces the
+  inheritance-based plugin system (each plugin subclassed
+  ``postcards.postcards.Postcards`` and overrode
+  ``get_img_and_text`` / ``build_plugin_subparser`` /
+  ``can_handle_command``) with a small typed, registry-based
+  API. The new public surface lives in ``postcards.plugins``:
+
+  - ``Plugin`` (``Protocol``) — three methods (`configure`,
+    `render`, `cli_help`) and two `ClassVar`s (`name`,
+    `description`); `@runtime_checkable` so tests can use
+    `isinstance`.
+  - ``PluginResult`` — frozen dataclass carrying `image`
+    (`BinaryIO`) + optional `message` (`str`) + optional
+    `metadata`.
+  - ``PluginContext`` — frozen dataclass carrying per-render
+    `options` (`Mapping[str, Any]`) + scoped `logger`.
+  - ``Registry`` — `name → plugin class` lookup with
+    `importlib.metadata` entry-point discovery under the
+    ``postcards.plugins`` group. The in-tree plugins
+    (``folder``, ``folder_yaml``, ``pexels``,
+    ``chuck_norris``) register themselves at import time
+    and are also advertised via the entry-point group so
+    third-party tools can enumerate them.
+  - ``load_plugin(name, payload, registry=None)`` — build,
+    configure, and return a ready-to-render plugin instance.
+    Wraps plugin `configure` exceptions in `PluginConfigError`.
+  - Typed exception hierarchy: ``PluginError`` and
+    subclasses (``PluginNotFoundError``,
+    ``PluginConfigError``, ``PluginRenderError``).
+
+  The four in-tree plugins are ported to the new API:
+
+  - ``folder`` — pick a random picture from a local
+    directory. Supports a ``.priority/`` subdirectory that
+    is sampled exclusively when populated, and an optional
+    ``move=True`` that relocates the chosen picture into
+    ``sent/``. Reads the file into memory and returns an
+    in-memory `BytesIO` so callers do not manage a file
+    handle.
+  - ``folder_yaml`` — pick the first `(text, image)` pair
+    from a YAML playlist; optionally truncate the document
+    after picking and optionally move the picture.
+  - ``pexels`` — fetch a random photo from
+    `picsum.photos` via the legacy
+    `postcards.plugin_pexels.util.pexels` helper. The
+    `keyword` payload field becomes the picsum seed so
+    different keywords land on different photos.
+  - ``chuck_norris`` — pick a random joke from a bundled
+    JSON dataset and fetch a matching picture. Supports
+    `category` filtering and a `duplicate_file` exclusion
+    list. The keyword extractor is a regex-based stopword
+    filter (no `nltk`).
+
+  - ``url`` — fetch a picture from a user-supplied
+    `http://` or `https://` URL. Accepts optional
+    custom `headers` (for `Authorization` etc.) and a
+    per-request `timeout`. Network errors and HTTP
+    4xx/5xx responses are surfaced as
+    `PluginRenderError` so the CLI prints a clean
+    message instead of a `requests` traceback.
+
+  - ``local`` — deterministic round-robin picker over a
+    local folder. The first render returns the
+    alphabetically-first matching picture; subsequent
+    renders advance through the sorted list and wrap to
+    0. Supports an optional `pattern` glob (e.g.
+    `landscape/*.jpg`) and an optional `cursor_file`
+    that persists the round-robin position across
+    processes (for cron-driven sends). Complements the
+    `folder` plugin, which picks uniformly at random.
+
+  - ``unsplash`` — fetch a random photo from the
+    Unsplash API. Reads the access token from the
+    environment variable
+    `POSTCARDS_UNSPLASH_ACCESS_KEY` (no config-file
+    fallback — secrets never live in the repo, see
+    `docs/CONSTITUTION.md` §2). Supports an optional
+    `query` (search term), `orientation`
+    (`landscape`/`portrait`/`squarish`, default
+    landscape), and `count` (1-30, picks one at
+    random from the returned list). Issues two HTTP
+    calls per render: the `/photos/random` lookup and
+    the JPEG download — both with the default 30 s
+    timeout.
+
+  The new plugins are documented in
+  `docs/WRITING_PLUGINS.md`, which walks through the
+  protocol, the `PluginResult` return type, the
+  configuration payload, the typed exception
+  hierarchy, and the entry-point publishing protocol
+  for third-party plugins. The document also lists
+  every in-tree plugin as a real-world example.
+
+  The ``send`` CLI subcommand and ``postcards.postcards.Postcards.do_command_send``
+  pick up the new plugin path automatically: when
+  ``config.json`` carries a ``payload.plugin`` field, the
+  modern registry path runs; otherwise the legacy
+  ``_is_plugin()`` branch (used by the `postcards-folder`,
+  `postcards-yaml`, ... console scripts) is preserved for
+  backward compatibility. CLI ``-m`` / ``-p`` options win
+  over the plugin's `message` / `image`.
+
+  A new ``postcards plugins list`` Typer subcommand
+  enumerates the registered plugins (in-tree +
+  entry-point).
+
+  The legacy ``postcards.plugin_random`` Bing-image-scraper
+  plugin is **removed**. Bing's image-search HTML format
+  dropped the `murl` JSON attribute on `<a class="iusc">`
+  elements in 2023, so the plugin's scraper returns zero
+  results on every request. The `pexels` plugin covers the
+  "I just want a random picture" use case. The
+  ``postcards-random`` console script, the
+  ``postcards.plugin_random.*`` packages, the bundled
+  ``random.html``/``random.js``/``random_search_term``
+  assets, and the ``tests/test_random_search_term.py``
+  tests are all deleted.
+
+  ``Postcards._read_picture`` now reads the picture into
+  memory and returns a `BytesIO` instead of an open file
+  handle. The legacy behavior leaked file descriptors in
+  callers that forgot to close the handle; the M2
+  integration tests started triggering `ResourceWarning`
+  errors under ``filterwarnings = "error"`` after the
+  legacy `_is_plugin()` path was retired.
+
+  Test count: 269 → 454 (+185). The new tests live in
+  ``tests/test_plugin_base.py`` (10 unit tests on the
+  `Plugin` Protocol / `PluginResult` dataclass /
+  `PluginBase` helper), ``tests/test_plugin_errors.py`` (5
+  exception tests), ``tests/test_plugin_registry.py`` (16
+  registry tests including entry-point discovery),
+  ``tests/test_plugin_loader.py`` (10 loader tests),
+  ``tests/test_plugin_folder.py`` (15 tests),
+  ``tests/test_plugin_folder_yaml.py`` (12 tests),
+  ``tests/test_plugin_pexels.py`` (9 tests, network
+  mocked via `urllib.request.urlopen`),
+  ``tests/test_plugin_chuck_norris.py`` (19 tests, network
+  mocked, keyword extractor unit tests),
+  ``tests/test_plugin_url.py`` (21 tests, network
+  mocked via `requests.get`),
+  ``tests/test_plugin_local.py`` (24 tests, round-robin
+  cursor + glob pattern + cursor_file persistence),
+  ``tests/test_plugin_unsplash.py`` (37 tests, network
+  mocked — covers the two-step API + download flow,
+  env-var config, error envelopes), and
+  ``tests/test_plugin_send_integration.py`` (7
+  end-to-end tests that drive ``do_command_send`` through
+  the mocked upstream `Token` / `PostcardCreator` with a
+  config-driven plugin producing the picture).
+
 ### Notes
 
 - The gate installs the package with `pip install -e ".[dev]"` (M1
