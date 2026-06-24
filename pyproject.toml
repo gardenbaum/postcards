@@ -89,6 +89,7 @@ postcards-chuck-norris = "postcards.plugin_chuck_norris.postcards_chuck_norris:m
 packages = [
     "postcards",
     "postcards.backend",
+    "postcards.config",
     "postcards._vendor",
     "postcards._vendor.postcard_creator",
     "postcards.plugin_chuck_norris",
