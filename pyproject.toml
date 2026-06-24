@@ -88,7 +88,10 @@ Repository = "http://github.com/abertschi/postcards"
 # via importlib.metadata without having to import the package.
 folder = "postcards.plugins.builtin.folder:FolderPlugin"
 folder_yaml = "postcards.plugins.builtin.folder_yaml:FolderYamlPlugin"
+local = "postcards.plugins.builtin.local:LocalPlugin"
 pexels = "postcards.plugins.builtin.pexels:PexelsPlugin"
+unsplash = "postcards.plugins.builtin.unsplash:UnsplashPlugin"
+url = "postcards.plugins.builtin.url:UrlPlugin"
 chuck_norris = "postcards.plugins.builtin.chuck_norris:ChuckNorrisPlugin"
 
 [project.scripts]

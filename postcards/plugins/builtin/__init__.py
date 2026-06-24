@@ -22,10 +22,13 @@ from postcards.plugins.builtin import (
     chuck_norris,
     folder,
     folder_yaml,
+    local,
     pexels,
+    unsplash,
+    url,
 )
 
-__all__ = ["chuck_norris", "folder", "folder_yaml", "pexels"]
+__all__ = ["chuck_norris", "folder", "folder_yaml", "local", "pexels", "unsplash", "url"]
 
 
 # Re-export the register/discover helpers so callers can

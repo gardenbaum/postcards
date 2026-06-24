@@ -286,6 +286,46 @@ as is practical for a wrapper around an unofficial upstream API.
     list. The keyword extractor is a regex-based stopword
     filter (no `nltk`).
 
+  - ``url`` — fetch a picture from a user-supplied
+    `http://` or `https://` URL. Accepts optional
+    custom `headers` (for `Authorization` etc.) and a
+    per-request `timeout`. Network errors and HTTP
+    4xx/5xx responses are surfaced as
+    `PluginRenderError` so the CLI prints a clean
+    message instead of a `requests` traceback.
+
+  - ``local`` — deterministic round-robin picker over a
+    local folder. The first render returns the
+    alphabetically-first matching picture; subsequent
+    renders advance through the sorted list and wrap to
+    0. Supports an optional `pattern` glob (e.g.
+    `landscape/*.jpg`) and an optional `cursor_file`
+    that persists the round-robin position across
+    processes (for cron-driven sends). Complements the
+    `folder` plugin, which picks uniformly at random.
+
+  - ``unsplash`` — fetch a random photo from the
+    Unsplash API. Reads the access token from the
+    environment variable
+    `POSTCARDS_UNSPLASH_ACCESS_KEY` (no config-file
+    fallback — secrets never live in the repo, see
+    `docs/CONSTITUTION.md` §2). Supports an optional
+    `query` (search term), `orientation`
+    (`landscape`/`portrait`/`squarish`, default
+    landscape), and `count` (1-30, picks one at
+    random from the returned list). Issues two HTTP
+    calls per render: the `/photos/random` lookup and
+    the JPEG download — both with the default 30 s
+    timeout.
+
+  The new plugins are documented in
+  `docs/WRITING_PLUGINS.md`, which walks through the
+  protocol, the `PluginResult` return type, the
+  configuration payload, the typed exception
+  hierarchy, and the entry-point publishing protocol
+  for third-party plugins. The document also lists
+  every in-tree plugin as a real-world example.
+
   The ``send`` CLI subcommand and ``postcards.postcards.Postcards.do_command_send``
   pick up the new plugin path automatically: when
   ``config.json`` carries a ``payload.plugin`` field, the
@@ -319,7 +359,7 @@ as is practical for a wrapper around an unofficial upstream API.
   errors under ``filterwarnings = "error"`` after the
   legacy `_is_plugin()` path was retired.
 
-  Test count: 269 → 369 (+100). The new tests live in
+  Test count: 269 → 454 (+185). The new tests live in
   ``tests/test_plugin_base.py`` (10 unit tests on the
   `Plugin` Protocol / `PluginResult` dataclass /
   `PluginBase` helper), ``tests/test_plugin_errors.py`` (5
@@ -331,7 +371,14 @@ as is practical for a wrapper around an unofficial upstream API.
   ``tests/test_plugin_pexels.py`` (9 tests, network
   mocked via `urllib.request.urlopen`),
   ``tests/test_plugin_chuck_norris.py`` (19 tests, network
-  mocked, keyword extractor unit tests), and
+  mocked, keyword extractor unit tests),
+  ``tests/test_plugin_url.py`` (21 tests, network
+  mocked via `requests.get`),
+  ``tests/test_plugin_local.py`` (24 tests, round-robin
+  cursor + glob pattern + cursor_file persistence),
+  ``tests/test_plugin_unsplash.py`` (37 tests, network
+  mocked — covers the two-step API + download flow,
+  env-var config, error envelopes), and
   ``tests/test_plugin_send_integration.py`` (7
   end-to-end tests that drive ``do_command_send`` through
   the mocked upstream `Token` / `PostcardCreator` with a

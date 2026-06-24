@@ -319,3 +319,119 @@ def test_plugin_payload_without_plugin_key_falls_back_to_legacy(tmp_path: Path) 
 
     postcard = upstream.calls_to_send_free_card[0]["postcard"]
     assert postcard.message == "legacy fallback"
+
+
+# ---------------------------------------------------------------------------
+# M3 round 2: url + local + unsplash end-to-end
+# ---------------------------------------------------------------------------
+
+
+def test_url_plugin_drives_send_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``url`` plugin's bytes reach the backend; network is mocked."""
+
+    class _FakeResp:
+        def __init__(self, body: bytes) -> None:
+            self.content = body
+            self.status_code = 200
+
+    expected_bytes = _png_bytes("red")
+    monkeypatch.setattr(
+        "postcards.plugins.builtin.url.requests.get",
+        lambda url, **_kw: _FakeResp(expected_bytes),
+    )
+
+    config_path = _write_config(
+        tmp_path / "config.json",
+        recipient=_recipient(),
+        payload={
+            "plugin": "url",
+            "url": "https://example.com/pic.png",
+            "message": "hi from the url plugin",
+        },
+    )
+
+    with MockUpstream() as upstream:
+        cards = Postcards()
+        cards.do_command_send(_build_args(config_path))
+
+    assert len(upstream.calls_to_send_free_card) == 1
+    postcard = upstream.calls_to_send_free_card[0]["postcard"]
+    assert postcard.message == "hi from the url plugin"
+    assert postcard.picture_stream is not None
+    assert postcard.picture_stream.read() == expected_bytes
+
+
+def test_local_plugin_drives_send_flow(tmp_path: Path) -> None:
+    """``local`` plugin's deterministic pick reaches the backend."""
+    folder = tmp_path / "pics"
+    folder.mkdir()
+    expected_bytes = _png_bytes("green")
+    (folder / "01.png").write_bytes(expected_bytes)
+    (folder / "02.png").write_bytes(_png_bytes("blue"))
+
+    config_path = _write_config(
+        tmp_path / "config.json",
+        recipient=_recipient(),
+        payload={"plugin": "local", "folder": str(folder)},
+    )
+
+    with MockUpstream() as upstream:
+        cards = Postcards()
+        cards.do_command_send(_build_args(config_path))
+
+    postcard = upstream.calls_to_send_free_card[0]["postcard"]
+    assert postcard.picture_stream is not None
+    assert postcard.picture_stream.read() == expected_bytes
+
+
+def test_unsplash_plugin_drives_send_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``unsplash`` plugin's two-step API + download reaches the backend."""
+
+    class _FakeResp:
+        def __init__(
+            self,
+            *,
+            body: bytes = b"",
+            status_code: int = 200,
+            json_body: object | None = None,
+        ) -> None:
+            self.content = body
+            self.status_code = status_code
+            self._json = json_body
+            self.text = ""
+
+        def json(self) -> object:
+            assert self._json is not None
+            return self._json
+
+    expected_bytes = _png_bytes("purple")
+    responses = iter(
+        [
+            _FakeResp(
+                json_body={
+                    "id": "abc",
+                    "urls": {"regular": "https://images.unsplash.com/abc.jpg"},
+                }
+            ),
+            _FakeResp(body=expected_bytes),
+        ]
+    )
+    monkeypatch.setattr(
+        "postcards.plugins.builtin.unsplash.requests.get",
+        lambda url, **_kw: next(responses),
+    )
+    monkeypatch.setenv("POSTCARDS_UNSPLASH_ACCESS_KEY", "test-access-key")
+
+    config_path = _write_config(
+        tmp_path / "config.json",
+        recipient=_recipient(),
+        payload={"plugin": "unsplash", "query": "alps"},
+    )
+
+    with MockUpstream() as upstream:
+        cards = Postcards()
+        cards.do_command_send(_build_args(config_path))
+
+    postcard = upstream.calls_to_send_free_card[0]["postcard"]
+    assert postcard.picture_stream is not None
+    assert postcard.picture_stream.read() == expected_bytes
