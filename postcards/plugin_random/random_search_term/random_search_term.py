@@ -1,245 +1,149 @@
-from js2py.pyjs import *
+"""Generate a random search term (camera-style filename) in pure Python.
+
+This module replaces a previous auto-conversion from JavaScript to
+Python via Js2Py. The original JavaScript was copied from the
+"Random Personal Picture Finder" script by Dave Mattson
+(http://www.diddly.com/random/) and described by its author as
+"the ugliest code I ever distributed on the internet".
+
+The function builds a random filename by selecting one of 26 camera
+naming conventions (dcp0, dsc0, IMG_, ...) and appending a numeric
+suffix. The numeric range and width vary per convention. The output
+matches the upstream ``get_random_search_term()`` contract:
+
+    >>> get_random_search_term()
+    'IMG_0042.jpg'
+
+Used by ``postcards.plugin_random.postcards_random`` to pick a Bing
+image search keyword for the random postcard plugin.
+"""
+
+from __future__ import annotations
+
+import random
+
+# Camera naming conventions. Each entry is (prefix, range, width).
+# The numeric ``range`` is the exclusive upper bound for the suffix;
+# ``width`` is the zero-padded width.
+#
+# Two entries use empty prefixes and rely on the suffix alone (entries
+# 17 and 18 in the original script); we model them as empty strings
+# here. The original JS string concat (``var.put('str', '+')`` etc.)
+# translates to plain Python string concatenation in this module.
+_CAMERAS: tuple[tuple[str, int, int], ...] = (
+    ("dcp0", 4000, 4),
+    ("dsc0", 4000, 4),
+    ("dscn", 4000, 4),
+    ("mvc-", 400, 3),
+    ("mvc0", 500, 4),
+    ("P101", 50, 4),
+    ("P", 50, 4),
+    ("IMG_", 4000, 4),
+    ("imag", 130, 4),
+    ("1", 100, 2),
+    ("dscf", 4000, 4),
+    ("pdrm", 600, 4),
+    ("IM00", 850, 4),
+    ("EX00", 100, 4),
+    ("dc", 4000, 4),
+    ("pict", 600, 4),
+    ("P00", 12000, 5),
+    ("", 30, 4),
+    ("", 50, 3),
+    ("imgp", 2000, 4),
+    ("pana", 200, 4),
+    ("1", 100, 2),
+    ("HPIM", 3700, 4),
+    ("PCDV", 300, 4),
+    ("_MG_", 4000, 4),
+    ("IMG_", 4000, 4),
+)
 
 
-def get_random_search_term():
+def _fmt(value: int, width: int) -> str:
+    """Zero-pad ``value`` to ``width`` characters."""
+    return str(value).zfill(width)
+
+
+def _month_token(value: int) -> str:
+    """Map an integer 0..12 to a 2-character month token.
+
+    Mirrors the original JS, which used digits 0..9 directly and
+    remapped 10/11/12 to ``a``/``b``/``c`` (a quirky but stable
+    convention).
     """
-    this is an auto-conversion from javascript to python done with https://piter.io/projects/js2py
-    original javascript sourcecode is copied from Random Personal Picture Finder script by Dave Mattson diddly.com
-    http://www.diddly.com/random/
-    note by author: "Feel free to copy this code, it sucks though"
+    if value >= 10:
+        return {10: "a", 11: "b", 12: "c"}.get(value, str(value))
+    return str(value)
 
-    Probably the ugliest code I ever distributed on the internet :D
-    :return: search term
 
+def _choice_range(choice: int) -> tuple[str, int, int]:
+    """Return ``(prefix, range, width)`` for the camera convention at index ``choice``."""
+    return _CAMERAS[choice]
+
+
+def get_random_search_term() -> str:
+    """Generate a random camera-style filename string.
+
+    Pure-Python translation of the upstream Js2Py-converted function.
+    The output is a ``.jpg`` filename whose prefix mirrors one of 26
+    common digital camera naming conventions and whose suffix is a
+    zero-padded number in the convention's natural range.
     """
+    choice = random.randrange(len(_CAMERAS))
+    prefix, range_upper, width = _choice_range(choice)
 
-    # setting scope
-    var = Scope(JS_BUILTINS)
-    set_global_object(var)
+    parts: list[str] = [prefix] if prefix else []
 
-    # Code follows:
-    var.registers([u'fmt00000', u'getRandomIndex', u'generateFileName'])
+    # Camera-specific suffix formatting. The original JS branches on
+    # the choice index to build compound strings (date-based, year
+    # prefixes, etc.). We model each branch directly.
+    if choice == 6:  # "P" — month + date
+        str_month = _month_token(random.randrange(13))
+        str_date = _fmt(random.randrange(31), 2)
+        parts.extend([str_month, str_date])
+    elif choice == 9:  # "1" — short numeric with dashes
+        str_thou = _fmt(random.randrange(3), 2)
+        parts.append(str_thou)
+        parts.append("-")
+        parts.append(str_thou)
+    elif choice == 17:  # empty prefix — month + date
+        str_month = _fmt(random.randrange(13), 2)
+        str_date = _fmt(random.randrange(31), 2)
+        parts.extend([str_month, str_date])
+    elif choice == 18:  # empty prefix — year + month + date
+        str_year = _fmt(random.randrange(3), 2)
+        str_month = _month_token(random.randrange(13))
+        str_date = _fmt(random.randrange(31), 2)
+        parts.extend([str_year, str_month, str_date])
+    elif choice == 14:  # "dc" — number + size letter
+        # The original puts "dc<number><size>"; we mirror that.
+        str_number = _fmt(random.randrange(190), 4)
+        size_index = random.randrange(3)
+        size_letter = ["s", "m", "l"][size_index]
+        # The JS does ``var.put('str', var.get('cams').get(var.get('choice')))``
+        # then ``+= strnumber`` then ``+= strsize`` — so it ends up
+        # ``dc<number><size>``. Reproduce that exactly.
+        return prefix + str_number + size_letter + ".jpg"
+    elif choice == 21:  # "1" — short with "1" prefix and _IMG suffix
+        str_thou = _fmt(random.randrange(90), 2)
+        str_foo = _fmt(random.randrange(range_upper), width)
+        parts.extend([str_thou, "-", str_thou, str_foo, "_IMG"])
+    elif choice == 25:  # "IMG_" — year/month/date with wildcard
+        str_year = _fmt(random.randrange(3) + 7, 2)
+        str_month = _fmt(random.randrange(11) + 1, 2)
+        str_date = _fmt(random.randrange(30) + 1, 2)
+        parts.append("20")
+        parts.append(str_year)
+        parts.append(str_month)
+        parts.append(str_date)
+        parts.append("_*")
 
-    @Js
-    def PyJsHoisted_fmt00000_(x, width, this, arguments, var=var):
-        var = Scope({u'this': this, u'x': x, u'arguments': arguments, u'width': width}, var)
-        var.registers([u'i', u'x', u'width'])
-        var.put(u'count', Js(0.0))
-        if (var.get(u'Math').callprop(u'abs', var.get(u'parseInt')(var.get(u'x'), Js(10.0))) < Js(100000.0)):
-            if (var.get(u'Math').callprop(u'abs', var.get(u'parseInt')(var.get(u'x'), Js(10.0))) < Js(10000.0)):
-                if (var.get(u'Math').callprop(u'abs', var.get(u'parseInt')(var.get(u'x'), Js(10.0))) < Js(1000.0)):
-                    if (var.get(u'Math').callprop(u'abs', var.get(u'parseInt')(var.get(u'x'), Js(10.0))) < Js(100.0)):
-                        if (var.get(u'Math').callprop(u'abs', var.get(u'parseInt')(var.get(u'x'), Js(10.0))) < Js(
-                                10.0)):
-                            if (var.get(u'width') > Js(1.0)):
-                                (var.put(u'count', Js(var.get(u'count').to_number()) + Js(1)) - Js(1))
-                        if (var.get(u'width') > Js(2.0)):
-                            (var.put(u'count', Js(var.get(u'count').to_number()) + Js(1)) - Js(1))
-                    if (var.get(u'width') > Js(3.0)):
-                        (var.put(u'count', Js(var.get(u'count').to_number()) + Js(1)) - Js(1))
-                if (var.get(u'width') > Js(4.0)):
-                    (var.put(u'count', Js(var.get(u'count').to_number()) + Js(1)) - Js(1))
-        # for JS loop
-        var.put(u'i', Js(0.0))
-        while (var.get(u'i') < var.get(u'count')):
-            try:
-                var.put(u'x', (Js(u'0') + var.get(u'x')))
-            finally:
-                (var.put(u'i', Js(var.get(u'i').to_number()) + Js(1)) - Js(1))
-        return var.get(u'x')
+    # Standard suffix: zero-padded number in the chosen range.
+    parts.append(_fmt(random.randrange(range_upper), width))
 
-    PyJsHoisted_fmt00000_.func_name = u'fmt00000'
-    var.put(u'fmt00000', PyJsHoisted_fmt00000_)
-
-    @Js
-    def PyJsHoisted_getRandomIndex_(max, this, arguments, var=var):
-        var = Scope({u'this': this, u'max': max, u'arguments': arguments}, var)
-        var.registers([u'max', u'randomNum'])
-        var.put(u'randomNum', var.get(u'Math').callprop(u'random'))
-        var.put(u'randomNum', (var.get(u'randomNum') * var.get(u'max')))
-        var.put(u'randomNum', var.get(u'parseInt')(var.get(u'randomNum')))
-        if var.get(u'isNaN')(var.get(u'randomNum')):
-            var.put(u'randomNum', Js(0.0))
-        return var.get(u'randomNum')
-
-    PyJsHoisted_getRandomIndex_.func_name = u'getRandomIndex'
-    var.put(u'getRandomIndex', PyJsHoisted_getRandomIndex_)
-
-    @Js
-    def PyJsHoisted_generateFileName_(this, arguments, var=var):
-        var = Scope({u'this': this, u'arguments': arguments}, var)
-        var.registers([u'cams', u'choice', u'width', u'range', u'types', u'size'])
-        var.put(u'types', Js(26.0))
-        var.put(u'cams', var.get(u'Array').create(var.get(u'types')))
-        var.get(u'cams').put(u'0', Js(u'dcp0'))
-        var.get(u'cams').put(u'1', Js(u'dsc0'))
-        var.get(u'cams').put(u'2', Js(u'dscn'))
-        var.get(u'cams').put(u'3', Js(u'mvc-'))
-        var.get(u'cams').put(u'4', Js(u'mvc0'))
-        var.get(u'cams').put(u'5', Js(u'P101'))
-        var.get(u'cams').put(u'6', Js(u'P'))
-        var.get(u'cams').put(u'7', Js(u'IMG_'))
-        var.get(u'cams').put(u'8', Js(u'imag'))
-        var.get(u'cams').put(u'9', Js(u'1'))
-        var.get(u'cams').put(u'10', Js(u'dscf'))
-        var.get(u'cams').put(u'11', Js(u'pdrm'))
-        var.get(u'cams').put(u'12', Js(u'IM00'))
-        var.get(u'cams').put(u'13', Js(u'EX00'))
-        var.get(u'cams').put(u'14', Js(u'dc'))
-        var.get(u'cams').put(u'15', Js(u'pict'))
-        var.get(u'cams').put(u'16', Js(u'P00'))
-        var.get(u'cams').put(u'17', Js(u''))
-        var.get(u'cams').put(u'18', Js(u''))
-        var.get(u'cams').put(u'19', Js(u'imgp'))
-        var.get(u'cams').put(u'20', Js(u'pana'))
-        var.get(u'cams').put(u'21', Js(u'1'))
-        var.get(u'cams').put(u'22', Js(u'HPIM'))
-        var.get(u'cams').put(u'23', Js(u'PCDV'))
-        var.get(u'cams').put(u'24', Js(u'_MG_'))
-        var.get(u'cams').put(u'25', Js(u'IMG_'))
-        var.put(u'size', Js(u''))
-        var.put(u'range', Js(4000.0))
-        var.put(u'width', Js(4.0))
-        var.put(u'choice', var.get(u'getRandomIndex')(var.get(u'types')))
-        var.put(u'str', var.get(u'cams').get(var.get(u'choice')))
-        if (var.get(u'choice') == Js(3.0)):
-            var.put(u'range', Js(400.0))
-            var.put(u'width', Js(3.0))
-        if (var.get(u'choice') == Js(4.0)):
-            var.put(u'range', Js(500.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(6.0)):
-            var.put(u'range', Js(50.0))
-            var.put(u'width', Js(4.0))
-            var.put(u'strmonth', var.get(u'getRandomIndex')(Js(13.0)))
-            if (var.get(u'strmonth') == Js(10.0)):
-                var.put(u'strmonth', Js(u'a'))
-            if (var.get(u'strmonth') == Js(11.0)):
-                var.put(u'strmonth', Js(u'b'))
-            if (var.get(u'strmonth') == Js(12.0)):
-                var.put(u'strmonth', Js(u'c'))
-            var.put(u'strdate', var.get(u'getRandomIndex')(Js(31.0)))
-            var.put(u'strdate', var.get(u'fmt00000')(var.get(u'strdate'), Js(2.0)))
-            var.put(u'str', var.get(u'strmonth'), u'+')
-            var.put(u'str', var.get(u'strdate'), u'+')
-        if (var.get(u'choice') == Js(8.0)):
-            var.put(u'range', Js(130.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(9.0)):
-            var.put(u'range', Js(100.0))
-            var.put(u'width', Js(2.0))
-            var.put(u'strthou', var.get(u'getRandomIndex')(Js(3.0)))
-            var.put(u'strthou', var.get(u'fmt00000')(var.get(u'strthou'), Js(2.0)))
-            var.put(u'str', var.get(u'strthou'), u'+')
-            var.put(u'str', Js(u'-'), u'+')
-            var.put(u'str', var.get(u'strthou'), u'+')
-        if (var.get(u'choice') == Js(11.0)):
-            var.put(u'range', Js(600.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(12.0)):
-            var.put(u'range', Js(850.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(13.0)):
-            var.put(u'range', Js(100.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(15.0)):
-            var.put(u'range', Js(600.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(16.0)):
-            var.put(u'range', Js(12000.0))
-            var.put(u'width', Js(5.0))
-        if (var.get(u'choice') == Js(17.0)):
-            var.put(u'range', Js(30.0))
-            var.put(u'width', Js(4.0))
-            var.put(u'strmonth', var.get(u'getRandomIndex')(Js(13.0)))
-            var.put(u'strmonth', var.get(u'fmt00000')(var.get(u'strmonth'), Js(2.0)))
-            var.put(u'strdate', var.get(u'getRandomIndex')(Js(31.0)))
-            var.put(u'strdate', var.get(u'fmt00000')(var.get(u'strdate'), Js(2.0)))
-            var.put(u'str', var.get(u'strmonth'), u'+')
-            var.put(u'str', var.get(u'strdate'), u'+')
-        if (var.get(u'choice') == Js(18.0)):
-            var.put(u'range', Js(50.0))
-            var.put(u'width', Js(3.0))
-            var.put(u'stryear', var.get(u'getRandomIndex')(Js(3.0)))
-            var.put(u'stryear', var.get(u'fmt00000')(var.get(u'stryear'), Js(2.0)))
-            var.put(u'strmonth', var.get(u'getRandomIndex')(Js(13.0)))
-            if (var.get(u'strmonth') == Js(10.0)):
-                var.put(u'strmonth', Js(u'a'))
-            if (var.get(u'strmonth') == Js(11.0)):
-                var.put(u'strmonth', Js(u'b'))
-            if (var.get(u'strmonth') == Js(12.0)):
-                var.put(u'strmonth', Js(u'c'))
-            var.put(u'strdate', var.get(u'getRandomIndex')(Js(31.0)))
-            var.put(u'strdate', var.get(u'fmt00000')(var.get(u'strdate'), Js(2.0)))
-            var.put(u'str', var.get(u'stryear'), u'+')
-            var.put(u'str', var.get(u'strmonth'), u'+')
-            var.put(u'str', var.get(u'strdate'), u'+')
-        if (var.get(u'choice') == Js(19.0)):
-            var.put(u'range', Js(2000.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(20.0)):
-            var.put(u'range', Js(200.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(22.0)):
-            var.put(u'range', Js(3700.0))
-            var.put(u'width', Js(4.0))
-        if (var.get(u'choice') == Js(23.0)):
-            var.put(u'range', Js(300.0))
-            var.put(u'width', Js(4.0))
-        var.put(u'strfoo', var.get(u'getRandomIndex')(var.get(u'range')))
-        var.put(u'strfoo', var.get(u'fmt00000')(var.get(u'strfoo'), var.get(u'width')))
-        var.put(u'str', var.get(u'strfoo'), u'+')
-        if (var.get(u'choice') == Js(14.0)):
-            var.put(u'strsize', var.get(u'getRandomIndex')(Js(3.0)))
-            if (var.get(u'strsize') == Js(0.0)):
-                var.put(u'strsize', Js(u's'))
-            if (var.get(u'strsize') == Js(1.0)):
-                var.put(u'strsize', Js(u'm'))
-            if (var.get(u'strsize') == Js(2.0)):
-                var.put(u'strsize', Js(u'l'))
-            var.put(u'strnumber', var.get(u'getRandomIndex')(Js(190.0)))
-            var.put(u'strnumber', var.get(u'fmt00000')(var.get(u'strnumber'), Js(4.0)))
-            var.put(u'str', var.get(u'cams').get(var.get(u'choice')))
-            var.put(u'str', var.get(u'strnumber'), u'+')
-            var.put(u'str', var.get(u'strsize'), u'+')
-        if (var.get(u'choice') == Js(21.0)):
-            var.put(u'range', Js(100.0))
-            var.put(u'width', Js(2.0))
-            var.put(u'strthou', var.get(u'getRandomIndex')(Js(90.0)))
-            var.put(u'strthou', var.get(u'fmt00000')(var.get(u'strthou'), Js(2.0)))
-            var.put(u'str', Js(u'1'))
-            var.put(u'str', var.get(u'strthou'), u'+')
-            var.put(u'str', Js(u'-'), u'+')
-            var.put(u'str', var.get(u'strthou'), u'+')
-            var.put(u'strfoo', var.get(u'getRandomIndex')(var.get(u'range')))
-            var.put(u'strfoo', var.get(u'fmt00000')(var.get(u'strfoo'), var.get(u'width')))
-            var.put(u'str', var.get(u'strfoo'), u'+')
-            var.put(u'str', Js(u'_IMG'), u'+')
-        if (var.get(u'choice') == Js(25.0)):
-            var.put(u'stryear', var.get(u'getRandomIndex')(Js(3.0)))
-            var.put(u'stryear', (var.get(u'stryear') + Js(7.0)))
-            var.put(u'stryear', var.get(u'fmt00000')(var.get(u'stryear'), Js(2.0)))
-            var.put(u'strmonth', var.get(u'getRandomIndex')(Js(11.0)))
-            var.put(u'strmonth', (var.get(u'strmonth') + Js(1.0)))
-            var.put(u'strmonth', var.get(u'fmt00000')(var.get(u'strmonth'), Js(2.0)))
-            var.put(u'strdate', var.get(u'getRandomIndex')(Js(30.0)))
-            var.put(u'strdate', (var.get(u'strdate') + Js(1.0)))
-            var.put(u'strdate', var.get(u'fmt00000')(var.get(u'strdate'), Js(2.0)))
-            var.put(u'str', var.get(u'cams').get(var.get(u'choice')))
-            var.put(u'str', Js(u'20'), u'+')
-            var.put(u'str', var.get(u'stryear'), u'+')
-            var.put(u'str', var.get(u'strmonth'), u'+')
-            var.put(u'str', var.get(u'strdate'), u'+')
-            var.put(u'str', Js(u'_*'), u'+')
-        var.put(u'url', (var.get(u'str') + Js(u'.jpg')))
-        return var.get(u'url')
-
-    PyJsHoisted_generateFileName_.func_name = u'generateFileName'
-    var.put(u'generateFileName', PyJsHoisted_generateFileName_)
-
-    # modified
-    return str(var.get(u'generateFileName')()).replace("'", '')
+    return "".join(parts) + ".jpg"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print(get_random_search_term())

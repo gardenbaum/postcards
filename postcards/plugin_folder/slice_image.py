@@ -1,19 +1,20 @@
-from PIL import Image
-import os
-from time import gmtime, strftime
-import math
-import sys
 import logging
+import math
+import os
+import sys
+from time import gmtime, strftime
+
+from PIL import Image
 
 """slice_image.py: Slice image into tiles."""
 
 __author__ = "Andrin Bertschi. www.abertschi.ch"
 
-LOGGER_NAME = 'slice_image'
+LOGGER_NAME = "slice_image"
 logger = logging.getLogger(LOGGER_NAME)
 
 
-def make_tiles(image, tile_width, tile_height):
+def make_tiles(image: Image.Image, tile_width: int, tile_height: int) -> list[list[Image.Image]]:
     """
     slice PIL image to tiles
 
@@ -25,7 +26,10 @@ def make_tiles(image, tile_width, tile_height):
     width_segments = math.floor(image.width / tile_width)
     height_segments = math.floor(image.height / tile_height)
 
-    matrix = [[0 for i in range(width_segments)] for i in range(height_segments)]
+    matrix: list[list[Image.Image]] = [
+        [Image.new("RGB", (tile_width, tile_height)) for _ in range(width_segments)]
+        for _ in range(height_segments)
+    ]
 
     for h in range(height_segments):
         y_from = h * tile_height
@@ -40,7 +44,11 @@ def make_tiles(image, tile_width, tile_height):
     return matrix
 
 
-def store_tiles(tiles, directory, basename=None):
+def store_tiles(
+    tiles: list[list[Image.Image]],
+    directory: str,
+    basename: str | None = None,
+) -> None:
     """
     Store generated tiles to disk
 
@@ -54,16 +62,16 @@ def store_tiles(tiles, directory, basename=None):
 
     if not os.path.exists(directory):
         os.makedirs(directory)
-        logger.debug('creating {}'.format(directory))
+        logger.debug(f"creating {directory}")
 
     height = len(tiles)
     width = len(tiles[0])
     for h in range(height):
         for w in range(width):
             frame = tiles[h][w]
-            filename = basename + '_{}-{}.jpg'.format(h, w)
+            filename = basename + f"_{h}-{w}.jpg"
             filepath = os.path.join(directory, filename)
-            logger.debug('storing {}'.format(filepath))
+            logger.debug(f"storing {filepath}")
             frame.save(filepath)
 
 
@@ -74,13 +82,12 @@ def _make_absolute_path(path):
         return str(os.path.join(os.getcwd(), path))
 
 
-def _from_cli(image_path, tile_width, tile_height):
+def _from_cli(image_path: str, tile_width: int, tile_height: int) -> None:
     if not os.path.isfile(image_path):
-        logger.error('file {} does not exist'.format(image_path))
-        exit(1)
+        logger.error(f"file {image_path} does not exist")
+        sys.exit(1)
 
-    file = open(image_path, 'rb')
-    with Image.open(file) as image:
+    with open(image_path, "rb") as file, Image.open(file) as image:
         cwd = os.getcwd()
         basename = strftime("sliced_%Y-%m-%d_%H-%M-%S", gmtime())
         directory = os.path.join(cwd, basename)
@@ -89,13 +96,14 @@ def _from_cli(image_path, tile_width, tile_height):
         store_tiles(tiles, directory)
 
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO,
-                        format='%(name)s (%(levelname)s): %(message)s')
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(name)s (%(levelname)s): %(message)s")
     logging.getLogger(LOGGER_NAME).setLevel(logging.DEBUG)
 
     if len(sys.argv) < 4:
-        logger.error('wrong usage. call script python {} <image_path> <tile_width> <tile_height>'.format(sys.argv[0]))
+        logger.error(
+            f"wrong usage. call script python {sys.argv[0]} <image_path> <tile_width> <tile_height>"
+        )
         exit(1)
 
     image_path = _make_absolute_path(sys.argv[1])

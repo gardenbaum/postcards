@@ -1,9 +1,11 @@
-from bs4 import BeautifulSoup
-import sys
-import os
 import json
-import urllib.request, urllib.error, urllib.parse
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
+from bs4 import BeautifulSoup
 
 # code by
 # stephenhouser/Bing-Image-Scraper
@@ -13,22 +15,24 @@ import urllib.request, urllib.error, urllib.parse
 def _get_soup(url, header):
     # return BeautifulSoup(urllib2.urlopen(urllib2.Request(url,headers=header)),
     # 'html.parser')
-    return BeautifulSoup(urllib.request.urlopen(
-        urllib.request.Request(url, headers=header)),
-        'html.parser')
+    return BeautifulSoup(
+        urllib.request.urlopen(urllib.request.Request(url, headers=header)), "html.parser"
+    )
 
 
-if __name__ == '__main__':
-    query = sys.argv[1]
-    query = query.split()
-    query = '+'.join(query)
-    query += '+filterui:imagesize-large'
-    url = "http://www.bing.com/images/search?q=" + query + "&FORM=HDRSC2&adlt=off"
+if __name__ == "__main__":
+    query_parts: list[str] = sys.argv[1].split()
+    url = (
+        "http://www.bing.com/images/search?q="
+        + "+".join(query_parts)
+        + "+filterui:imagesize-large&FORM=HDRSC2&adlt=off"
+    )
 
     # add the directory for your image here
     DIR = "Pictures"
     header = {
-        'User-Agent': "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/43.0.2357.134 Safari/537.36"}
+        "User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/43.0.2357.134 Safari/537.36"
+    }
     soup = _get_soup(url, header)
 
     ActualImages = []  # contains the link for Large original images, type of  image
@@ -49,25 +53,21 @@ if __name__ == '__main__':
     if not os.path.exists(DIR):
         os.mkdir(DIR)
 
-    DIR = os.path.join(DIR, query.split()[0])
+    DIR = os.path.join(DIR, query_parts[0])
     if not os.path.exists(DIR):
         os.mkdir(DIR)
 
     ##print images
-    for i, (image_name, turl, murl) in enumerate(ActualImages):
+    for _i, (image_name, _turl, murl) in enumerate(ActualImages):
         try:
-            # req = urllib2.Request(turl, headers={'User-Agent' : header})
-            # raw_img = urllib2.urlopen(req).read()
-            # req = urllib.request.Request(turl, headers={'User-Agent' : header})
             raw_img = urllib.request.urlopen(murl).read()
 
             cntr = len([i for i in os.listdir(DIR) if image_name in i]) + 1
             # print cntr
 
-            f = open(os.path.join(DIR, image_name), 'wb')
-            f.write(raw_img)
-            f.close()
-            print('downloaded ' + murl)
+            with open(os.path.join(DIR, image_name), "wb") as f:
+                f.write(raw_img)
+            print("downloaded " + murl)
         except Exception as e:
             print("could not load : " + image_name)
             print(e)
