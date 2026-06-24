@@ -86,12 +86,52 @@ class Postcards:
     def do_command_decrypt(self, args: argparse.Namespace) -> None:
         self.decrypt_credential(args.key, args.credential)
 
-    def do_command_send(self, args: argparse.Namespace) -> None:
-        config = self._read_json_file(args.config_file[0], "config")
+    def do_command_send(
+        self,
+        args: argparse.Namespace,
+        *,
+        config_dict: dict | None = None,
+        accounts_dict: dict | None = None,
+    ) -> None:
+        """Run the ``send`` flow.
 
-        accounts_file: dict | None = None
-        if args.accounts_file:
-            accounts_file = self._read_json_file(args.accounts_file, "accounts")
+        Parameters
+        ----------
+        args:
+            The :class:`argparse.Namespace` the CLI builds from
+            Typer options. The shape is unchanged from the M1
+            command surface — see :mod:`postcards.cli.commands.send`.
+        config_dict:
+            Optional in-memory replacement for the config file.
+            When supplied, ``do_command_send`` skips the disk
+            read at ``args.config_file[0]`` and uses ``config_dict``
+            directly. The M4 ``postcards send --to NAME`` /
+            ``--message-template NAME`` flow uses this to layer
+            address-book and template resolutions on top of the
+            on-disk config without writing a temporary file.
+        accounts_dict:
+            Optional in-memory replacement for the accounts
+            file. Same semantics as ``config_dict`` but for
+            ``args.accounts_file``.
+
+        Returns
+        -------
+        None
+            The method either succeeds silently (the card is
+            sent / mocked-sent) or aborts the process via
+            :func:`sys.exit`. It does not return a typed value.
+        """
+        if config_dict is None:
+            config = self._read_json_file(args.config_file[0], "config")
+        else:
+            config = config_dict
+
+        if accounts_dict is None:
+            accounts_file: dict | None = None
+            if args.accounts_file:
+                accounts_file = self._read_json_file(args.accounts_file, "accounts")
+        else:
+            accounts_file = accounts_dict
 
         key_settings = self._parse_key(args)
         accounts = self._get_accounts(
@@ -338,6 +378,12 @@ class Postcards:
             street=str(sender.get("street") or ""),
             zip_code=str(sender.get("zipcode") or ""),
             place=str(sender.get("city") or ""),
+            # M4: forward the optional ``country`` field so
+            # ``--sender NAME`` from the address book can
+            # supply a return-address country. The shim's
+            # Sender accepts ``country`` as an optional kwarg;
+            # older configs without the field default to "".
+            country=str(sender.get("country") or ""),
         )
 
     def _get_accounts(
