@@ -14,7 +14,7 @@ LOGGER_NAME = "slice_image"
 logger = logging.getLogger(LOGGER_NAME)
 
 
-def make_tiles(image, tile_width, tile_height):
+def make_tiles(image: Image.Image, tile_width: int, tile_height: int) -> list[list[Image.Image]]:
     """
     slice PIL image to tiles
 
@@ -26,7 +26,10 @@ def make_tiles(image, tile_width, tile_height):
     width_segments = math.floor(image.width / tile_width)
     height_segments = math.floor(image.height / tile_height)
 
-    matrix = [[0 for i in range(width_segments)] for i in range(height_segments)]
+    matrix: list[list[Image.Image]] = [
+        [Image.new("RGB", (tile_width, tile_height)) for _ in range(width_segments)]
+        for _ in range(height_segments)
+    ]
 
     for h in range(height_segments):
         y_from = h * tile_height
@@ -41,7 +44,11 @@ def make_tiles(image, tile_width, tile_height):
     return matrix
 
 
-def store_tiles(tiles, directory, basename=None):
+def store_tiles(
+    tiles: list[list[Image.Image]],
+    directory: str,
+    basename: str | None = None,
+) -> None:
     """
     Store generated tiles to disk
 
