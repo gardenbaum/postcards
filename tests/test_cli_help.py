@@ -53,24 +53,34 @@ def postcards_entry_points() -> list[str]:
 def test_postcards_package_has_console_scripts(
     postcards_entry_points: list[str],
 ) -> None:
-    """``pyproject.toml`` declares at least the six known entry points.
+    """``pyproject.toml`` declares at least the known entry points.
 
-    We assert >= 6 rather than an exact match so adding a new plugin
+    We assert >= 5 rather than an exact match so adding a new plugin
     does not require updating this test; the per-entry smoke tests
     below iterate the actual list and will catch a broken entry point
     automatically.
+
+    M3 removed the ``postcards-random`` console script (the Bing
+    image-search scraper stopped returning results in 2023). The
+    expected set is the remaining M2 entry points plus the M3
+    ``postcards-chuck-norris`` plugin (which was already shipped in
+    M0 but never had its console script listed in this test).
     """
-    assert len(postcards_entry_points) >= 6
+    assert len(postcards_entry_points) >= 5
     expected = {
         "postcards",
         "postcards-folder",
         "postcards-yaml",
         "postcards-pexels",
-        "postcards-random",
         "postcards-chuck-norris",
     }
     missing = expected - set(postcards_entry_points)
     assert not missing, f"missing console scripts: {sorted(missing)}"
+    # ``postcards-random`` must NOT be a registered console script
+    # in M3 (the Bing scraper was removed).
+    assert "postcards-random" not in postcards_entry_points, (
+        "postcards-random was removed in M3 (Bing scraper)"
+    )
 
 
 @pytest.mark.parametrize(
@@ -80,7 +90,6 @@ def test_postcards_package_has_console_scripts(
         "postcards-folder",
         "postcards-yaml",
         "postcards-pexels",
-        "postcards-random",
         "postcards-chuck-norris",
     ],
 )
@@ -112,7 +121,6 @@ def test_console_script_module_imports(script_name: str) -> None:
         "postcards-folder",
         "postcards-yaml",
         "postcards-pexels",
-        "postcards-random",
         "postcards-chuck-norris",
     ],
 )

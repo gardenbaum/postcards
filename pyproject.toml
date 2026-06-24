@@ -86,11 +86,17 @@ Repository = "http://github.com/abertschi/postcards"
 # (argparse) is still importable as ``postcards.postcards.main`` for
 # tests and the plugin entry points, but it is no longer the
 # user-facing entry.
+#
+# M3: removed ``postcards-random``. The Bing-image-scraper plugin
+# has not worked since 2023 (Bing's `murl` JSON attribute on
+# image search results was retired); the modern ``postcards.plugins``
+# system replaces it with a registry of clean, typed plugins
+# (``folder``, ``folder_yaml``, ``pexels``, ``chuck_norris``) —
+# see ``postcards/plugins/``.
 postcards = "postcards.cli.main:main"
 postcards-folder = "postcards.plugin_folder.postcards_folder:main"
 postcards-yaml = "postcards.plugin_folder_yaml.postcards_folder_yaml:main"
 postcards-pexels = "postcards.plugin_pexels.postcards_pexels:main"
-postcards-random = "postcards.plugin_random.postcards_random:main"
 postcards-chuck-norris = "postcards.plugin_chuck_norris.postcards_chuck_norris:main"
 
 # ---------------------------------------------------------------------------
@@ -105,6 +111,8 @@ packages = [
     "postcards.config",
     "postcards.image",
     "postcards.models",
+    "postcards.plugins",
+    "postcards.plugins.builtin",
     "postcards.render",
     "postcards._vendor",
     "postcards._vendor.postcard_creator",
@@ -113,17 +121,13 @@ packages = [
     "postcards.plugin_folder_yaml",
     "postcards.plugin_pexels",
     "postcards.plugin_pexels.util",
-    "postcards.plugin_random",
-    "postcards.plugin_random.random_search_term",
-    "postcards.plugin_random.util",
 ]
 
 [tool.hatch.build.targets.wheel.force-include]
 "postcards/template_config.json" = "postcards/template_config.json"
 "postcards/template_config_advanced.json" = "postcards/template_config_advanced.json"
 "postcards/plugin_chuck_norris/chuck_norris_jokes.json" = "postcards/plugin_chuck_norris/chuck_norris_jokes.json"
-"postcards/plugin_random/random_search_term/random.html" = "postcards/plugin_random/random_search_term/random.html"
-"postcards/plugin_random/random_search_term/random.js" = "postcards/plugin_random/random_search_term/random.js"
+"postcards/plugins/builtin/chuck_norris_jokes.json" = "postcards/plugins/builtin/chuck_norris_jokes.json"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -240,7 +244,6 @@ filterwarnings = [
 source = ["postcards"]
 omit = [
     "postcards/plugin_chuck_norris/*",
-    "postcards/plugin_random/*",
     "tmp/*",
 ]
 

@@ -22,6 +22,15 @@ register themselves with the default :data:`REGISTRY` at import time.
 External packages can register new plugins via the
 ``postcards.plugins`` entry-point group (see ``pyproject.toml``).
 
+Disambiguation
+--------------
+
+If a plugin is registered both programmatically and via an entry
+point under the same name, the programmatic registration wins
+(``register`` overwrites). This is intentional: a host application
+that vendors a plugin should be able to override the entry-point
+version without rebuilding the package.
+
 Backward compatibility
 ----------------------
 
@@ -32,8 +41,17 @@ importable. The M3 plugin system is config-driven: when
 is taken; otherwise the legacy ``_is_plugin()`` branch in
 ``postcards.postcards`` is preserved.
 
-The Bing-image-scraper plugin (``postcards.plugin_random``) is
-removed entirely; see the M3 changelog entry for the justification.
+Removed plugins
+---------------
+
+The legacy ``postcards.plugin_random`` Bing-image-scraper plugin
+has been removed in M3. Bing's image-search HTML format dropped
+the ``murl`` JSON attribute on ``<a class="iusc">`` elements in
+2023, so the plugin's scraper returns zero results on every
+request. The fix would be a from-scratch rewrite against a
+different image-search provider, which is out of scope for M3.
+The ``pexels`` plugin (random photo from picsum.photos) covers
+the "I just want a random picture" use case.
 """
 
 from __future__ import annotations
