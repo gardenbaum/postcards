@@ -105,6 +105,7 @@ packages = [
     "postcards.config",
     "postcards.image",
     "postcards.models",
+    "postcards.render",
     "postcards._vendor",
     "postcards._vendor.postcard_creator",
     "postcards.plugin_chuck_norris",

@@ -142,7 +142,12 @@ as is practical for a wrapper around an unofficial upstream API.
     config file when ``--username`` / ``--password`` are not
     passed.
   * ``postcards preview`` — show what ``send`` would do, without
-    actually sending. Same arguments as ``send``.
+    actually sending. Same arguments as ``send``. Accepts
+    ``--output PATH`` (a ``.png`` / ``.jpg`` / ``.jpeg`` / ``.pdf``
+    path) to render the would-be card to a local file via the new
+    :mod:`postcards.render` module — no network call, no SwissID
+    login, no quota consumption. URL pictures are rejected so the
+    preview stays a strict offline dry-run.
   * ``postcards generate`` — write the bundled starter config to
     a given path. Refuses to clobber an existing file unless
     ``--force`` is passed.
@@ -198,6 +203,35 @@ as is practical for a wrapper around an unofficial upstream API.
   behavior, the ``legacy`` subcommand, the ``CLIError`` class
   contract, ``-vv`` logging configuration, and the
   :func:`main` entry point.
+
+- **M2 — offline preview rendering.** Adds the
+  :mod:`postcards.render` package and a ``--output`` option on
+  ``postcards preview`` so the user can render the would-be
+  card (front image + back with message and addresses) to a
+  local PNG / JPEG / PDF without contacting Swiss Post. The
+  renderer runs the A6 image pipeline on the supplied picture
+  so the rendered front is the exact JPEG bytes the backend
+  would transmit. The back panel paints the recipient block
+  at the top of the right half and the sender block at the
+  bottom (with a ``From:`` label) using a word-wrapped message
+  on the left half; HTML in the message is normalised to
+  plain text with ``<br>`` becoming a newline. URL pictures
+  are rejected so the preview stays a strict offline
+  dry-run; unsupported output extensions raise
+  :class:`postcards.render.RenderError`. The renderer is
+  dependency-light (Pillow only — no network, no SwissID
+  code, no quota consumption).
+
+  Test count: 239 → 269 (+30). The new tests live in
+  ``tests/test_postcard_render.py`` (25 unit tests on the
+  renderer: front / back dimensions, placeholder,
+  picture-byte decoding, garbage-bytes error, file
+  extension dispatch, PNG / JPEG / PDF output sanity,
+  parent-directory creation, address formatting, HTML
+  normalisation, word-wrap edge cases) and
+  ``tests/test_typer_cli.py`` (5 CLI integration tests
+  on the ``--output`` flow: PNG / PDF writes, text-only
+  cards, URL rejection, unsupported-extension rejection).
 
 ### Notes
 

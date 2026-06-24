@@ -383,6 +383,174 @@ def test_preview_requires_picture_or_message(
     assert result.exit_code == 2
 
 
+def test_preview_output_writes_postcard_file(
+    config_file: Path,
+    clean_env: None,
+    tmp_path: Path,
+) -> None:
+    """``preview --output PATH`` writes a postcard file at PATH.
+
+    The preview command runs the image pipeline on the supplied
+    picture (so the rendered front is the exact JPEG bytes the
+    backend would transmit) and writes a single PNG / JPEG / PDF
+    to ``PATH`` — no network call, no SwissID login, no quota
+    consumption. The test asserts the file exists, is non-empty,
+    and starts with the right magic header for the chosen format.
+    """
+    from PIL import Image
+
+    picture = tmp_path / "picture.jpg"
+    Image.new("RGB", (800, 600), color="purple").save(picture, format="JPEG")
+
+    output = tmp_path / "preview.png"
+    result = _invoke(
+        "preview",
+        "-c",
+        str(config_file),
+        "-p",
+        str(picture),
+        "-m",
+        "Hello!",
+        "--username",
+        "alice",
+        "--password",
+        "alice-pw",
+        "-o",
+        str(output),
+    )
+    assert result.exit_code == 0, result.output
+    assert output.is_file()
+    assert output.stat().st_size > 0
+    # PNG magic — the test parametrizes over the extension via
+    # separate cases below; the headline assertion here is that
+    # the file was actually written.
+    assert output.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    assert "preview written to" in result.output.lower()
+
+
+def test_preview_output_writes_pdf_when_extension_is_pdf(
+    config_file: Path,
+    clean_env: None,
+    tmp_path: Path,
+) -> None:
+    """``preview -o foo.pdf`` writes a PDF (not a PNG)."""
+    from PIL import Image
+
+    picture = tmp_path / "picture.jpg"
+    Image.new("RGB", (200, 200), color="orange").save(picture, format="JPEG")
+
+    output = tmp_path / "preview.pdf"
+    result = _invoke(
+        "preview",
+        "-c",
+        str(config_file),
+        "-p",
+        str(picture),
+        "-m",
+        "Hello!",
+        "--username",
+        "alice",
+        "--password",
+        "alice-pw",
+        "-o",
+        str(output),
+    )
+    assert result.exit_code == 0, result.output
+    assert output.read_bytes()[:4] == b"%PDF"
+
+
+def test_preview_output_works_without_picture(
+    config_file: Path,
+    clean_env: None,
+    tmp_path: Path,
+) -> None:
+    """``preview --output`` works for text-only cards (no picture required).
+
+    A text-only card is still valid input for the preview — the
+    renderer falls back to a placeholder gradient on the front.
+    """
+    output = tmp_path / "preview.png"
+    result = _invoke(
+        "preview",
+        "-c",
+        str(config_file),
+        "-m",
+        "Just a text message",
+        "--username",
+        "alice",
+        "--password",
+        "alice-pw",
+        "-o",
+        str(output),
+    )
+    assert result.exit_code == 0, result.output
+    assert output.is_file()
+    assert output.stat().st_size > 0
+
+
+def test_preview_output_rejects_url_pictures(
+    config_file: Path,
+    clean_env: None,
+    tmp_path: Path,
+) -> None:
+    """``preview --output`` refuses HTTP picture URLs.
+
+    The preview command is a strict offline dry-run; fetching a
+    picture from a URL during preview would contradict that
+    guarantee. The renderer fails fast with exit code 2 when the
+    picture starts with ``http://`` / ``https://``.
+    """
+    output = tmp_path / "preview.png"
+    result = _invoke(
+        "preview",
+        "-c",
+        str(config_file),
+        "-p",
+        "https://example.com/picture.jpg",
+        "-m",
+        "Hi",
+        "--username",
+        "alice",
+        "--password",
+        "alice-pw",
+        "-o",
+        str(output),
+    )
+    assert result.exit_code == 2
+    assert not output.exists()
+
+
+def test_preview_output_rejects_unsupported_extension(
+    config_file: Path,
+    clean_env: None,
+    tmp_path: Path,
+) -> None:
+    """``preview --output`` rejects unknown file extensions."""
+    from PIL import Image
+
+    picture = tmp_path / "picture.jpg"
+    Image.new("RGB", (200, 200), color="red").save(picture, format="JPEG")
+
+    output = tmp_path / "preview.bmp"
+    result = _invoke(
+        "preview",
+        "-c",
+        str(config_file),
+        "-p",
+        str(picture),
+        "-m",
+        "Hi",
+        "--username",
+        "alice",
+        "--password",
+        "alice-pw",
+        "-o",
+        str(output),
+    )
+    assert result.exit_code != 0
+    assert not output.exists()
+
+
 # ---------------------------------------------------------------------------
 # generate
 # ---------------------------------------------------------------------------
