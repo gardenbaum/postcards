@@ -9,6 +9,55 @@ as is practical for a wrapper around an unofficial upstream API.
 
 ### Added
 
+- **M4 — address book + message templates.** A persistent
+  per-user store under `$XDG_DATA_HOME/postcards/` (overridable
+  via `POSTCARDS_DATA_DIR`) holds named recipients / senders
+  and reusable message templates with `$name` / `${name}`
+  substitution. New command groups:
+
+  - `postcards addresses {add,list,show,update,remove}` —
+    manage the address book.
+  - `postcards templates {add,list,show,update,render,remove}`
+    — manage and render templates; `render` substitutes
+    `--var KEY=VALUE` pairs with strict missing-key
+    semantics.
+
+  `postcards send` gains three new options that pull from
+  these stores:
+
+  - `--to NAME` — recipient from the address book
+    (recipient category).
+  - `--sender NAME` — sender from the address book
+    (sender category).
+  - `--message-template NAME` — render a template with
+    `--var KEY=VALUE` substitutions (repeatable).
+
+  The new options are layered on top of the existing
+  config-file flow rather than replacing it: accounts still
+  come from `-c config.json`, and the recipient / sender /
+  message are resolved in-memory before delegating to
+  `Postcards.do_command_send`. A tiny refactor adds
+  optional `config_dict` / `accounts_dict` kwargs to
+  `do_command_send` so the on-disk path stays bit-identical
+  for existing callers.
+
+  New package `postcards.addressbook/` with value-type
+  models (`AddressBook`, `AddressBookEntry`,
+  `AddressCategory`, `MessageTemplate`, `TemplateBook`),
+  XDG-aware path resolution, atomic JSON persistence (sibling
+  temp file + `os.replace` + `fsync`), and a stdlib-based
+  template renderer.
+
+  See `docs/ADDRESS_BOOK.md` for the user-facing guide.
+
+  Tests: 105 unit tests across models, paths, storage, and
+  variable substitution; 48 CLI tests across the new command
+  groups; 13 integration tests that drive the full CLI
+  stack (Typer → `do_command_send` → mocked
+  `send_free_card`) with address-book and template-book
+  entries as inputs. Local gate: ruff + ruff-format + mypy +
+  623/623 pytest (up from 457 in M3).
+
 - **M0 — toolchain + CI + constitution.** Replaces `setup.py` with a
   modern `pyproject.toml` (PEP 621, hatchling build backend) targeting
   Python 3.12 and 3.13. Adds and configures `ruff` (lint + format),

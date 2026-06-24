@@ -86,9 +86,26 @@ $ postcards -v send --config config.json \
     --message "Happy coding!"
 
 # - Add more 'v' to increase verbosity, i.e. -vv
-# - Note: The -v / --verbose flag belongs to the root parser, add it after 'postcards' and before 'send'     
-    
+# - Note: the -v / --verbose flag belongs to the root parser, add it after 'postcards' and before 'send'
+
+# Send to a recipient from your persistent address book
+$ postcards addresses add alice \
+    --prename Alice --lastname Zuercher \
+    --street "Bahnhofstrasse 1" --zip-code 8000 --place Zurich
+
+$ postcards send --config config.json \
+    --to alice --picture pic.jpg --message "Happy coding"
+
+# Render a message from a reusable template
+$ postcards templates add greeting --body 'Hi $name, greetings from Zurich'
+
+$ postcards send --config config.json \
+    --to alice --picture pic.jpg \
+    --message-template greeting --var name=Alice
 ```
+
+See [docs/ADDRESS_BOOK.md](docs/ADDRESS_BOOK.md) for the full
+guide to the address-book and template-book commands.
 
 ## Plugins
 Postcards is designed in a plugin based approach. 
