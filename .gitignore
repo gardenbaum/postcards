@@ -45,6 +45,9 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Translations
 *.mo
@@ -68,7 +71,7 @@ docs/_build/
 target/
 
 # Jupyter Notebook
-.ipynb_checkpoints
+.ipynb_checkpoints/
 
 # pyenv
 .python-version
@@ -97,18 +100,18 @@ ENV/
 # mkdocs documentation
 /site
 
-# mypy
-.mypy_cache/
+# Project-local secrets / config (also referenced by docs/CONSTITUTION.md §2)
 config.json
+accounts.json
+
+# Editor / scratch
 .idea
 img.jpg
 playground.py
 config-max.json
 IMG_20170709_143801036_HDR.jpg
-tmp
-accounts.json
-pictures
 run.sh
+pictures
 tmp/
-dist/
+tmp-pic/
 tmp-venv/

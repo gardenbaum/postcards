@@ -1,0 +1,242 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "postcards"
+version = "2.2"
+description = "A CLI for the Swiss Postcard Creator"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Andrin Bertschi" },
+]
+keywords = ["postcard", "swiss"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications",
+]
+requires-python = ">=3.12"
+# Runtime dependencies: kept as in requirements.txt for M0. The next milestone
+# (M1: dependency modernization) will replace the pinned 2017/2021 versions
+# with current releases and drop transitive deps that no longer install on
+# Python 3.12/3.13 (e.g. Js2Py -> py-mini-racer or pure-python replacement).
+dependencies = [
+    "beautifulsoup4==4.6.0",
+    "certifi==2017.11.5",
+    "chardet==3.0.4",
+    "cookies==2.2.1",
+    "idna==2.6",
+    "inflection==0.3.1",
+    "Js2Py==0.50",
+    "nltk==3.4.5",
+    "olefile==0.44",
+    "pyjsparser==2.5.2",
+    "pypexels==1.0.0b4",
+    "python-resize-image==1.1.11",
+    "pytz==2017.3",
+    "PyYAML==5.3",
+    "six==1.11.0",
+    "tzlocal==1.4",
+    "urllib3==1.25.8",
+    "requests",
+    "requests-toolbelt",
+    "Pillow==8.3.1",
+    "postcard-creator==2.2",
+]
+
+[project.optional-dependencies]
+# M0: toolchain dependencies, installable via `pip install -e ".[dev]"`.
+# The smoke test in tests/ runs with --no-deps because the legacy runtime
+# deps above are not installable on Python 3.12/3.13 yet (see M1).
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "http://github.com/abertschi/postcards"
+Repository = "http://github.com/abertschi/postcards"
+
+[project.scripts]
+postcards = "postcards.postcards:main"
+postcards-folder = "postcards.plugin_folder.postcards_folder:main"
+postcards-yaml = "postcards.plugin_folder_yaml.postcards_folder_yaml:main"
+postcards-pexels = "postcards.plugin_pexels.postcards_pexels:main"
+postcards-random = "postcards.plugin_random.postcards_random:main"
+postcards-chuck-norris = "postcards.plugin_chuck_norris.postcards_chuck_norris:main"
+
+# ---------------------------------------------------------------------------
+# Build backend (hatchling) configuration
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = [
+    "postcards",
+    "postcards.plugin_chuck_norris",
+    "postcards.plugin_folder",
+    "postcards.plugin_folder_yaml",
+    "postcards.plugin_pexels",
+    "postcards.plugin_pexels.util",
+    "postcards.plugin_random",
+    "postcards.plugin_random.random_search_term",
+    "postcards.plugin_random.util",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+"postcards/template_config.json" = "postcards/template_config.json"
+"postcards/template_config_advanced.json" = "postcards/template_config_advanced.json"
+"postcards/plugin_chuck_norris/chuck_norris_jokes.json" = "postcards/plugin_chuck_norris/chuck_norris_jokes.json"
+"postcards/plugin_random/random_search_term/random.html" = "postcards/plugin_random/random_search_term/random.html"
+"postcards/plugin_random/random_search_term/random.js" = "postcards/plugin_random/random_search_term/random.js"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "postcards",
+    "tests",
+    "scripts",
+    "docs",
+    ".github",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+    ".gitignore",
+]
+exclude = [
+    ".venv",
+    ".venv-312",
+    ".venv-*",
+    "dist",
+    "build",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".pytest_cache",
+    "__pycache__",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff: lint + format
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+    "tmp",
+    "tmp-pic",
+    "dist",
+    "build",
+    ".venv",
+    "venv",
+]
+
+[tool.ruff.lint]
+# M0: lint everything; the legacy postcards/ package has many violations that
+# are scheduled to be remediated in M1+ (per docs/CONSTITUTION.md). For the
+# M0 smoke test we ignore the legacy package via per-file-ignores so the
+# gate stays green; the ignores will be removed once the package is brought
+# up to standard.
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = [
+    "E501",  # line length (handled by formatter)
+    "B008",  # function call in default argument (argparse idiom)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy package: ignore lint violations in M0. Remove this block in M1+
+# once the package is brought up to the lint baseline.
+"postcards/**/*.py" = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.format]
+# M0: skip formatting the legacy package. The M1 milestone runs
+# `ruff format` over the legacy package as part of the lint/type
+# baseline cleanup.
+exclude = [
+    "postcards/**",
+]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = false
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+# M0: legacy package has many untyped functions; tolerate missing annotations
+# and missing imports until M1 cleans it up.
+ignore_missing_imports = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = false
+show_error_codes = true
+exclude = [
+    "tmp/",
+    "dist/",
+    "build/",
+    ".venv/",
+]
+
+[[tool.mypy.overrides]]
+# Legacy package: ignore all errors in M0. The M1 milestone brings the
+# package up to the typing baseline and removes this override.
+module = "postcards.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Strict on tests/ — they are new code and must be well-typed.
+module = "tests.*"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=postcards",
+    "--cov-report=term-missing",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Do not collect the legacy package's own files if any exist outside tests/.
+pythonpath = ["."]
+filterwarnings = [
+    "error",
+    # The legacy package imports may trigger deprecation warnings on
+    # Python 3.12+; they are addressed in M1.
+    "ignore::DeprecationWarning:postcards.*",
+]
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["postcards"]
+omit = [
+    "postcards/plugin_chuck_norris/*",
+    "postcards/plugin_random/*",
+    "tmp/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 0
