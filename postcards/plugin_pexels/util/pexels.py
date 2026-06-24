@@ -87,7 +87,7 @@ def read_from_url(url: str) -> BinaryIO:
     pass it to PIL.
     """
     request = urllib.request.Request(url, None, _HEADERS)
-    return urllib.request.urlopen(request)  # type: ignore[return-value]
+    return urllib.request.urlopen(request)
 
 
 def get_random_image(keyword: str | None = None) -> BinaryIO:

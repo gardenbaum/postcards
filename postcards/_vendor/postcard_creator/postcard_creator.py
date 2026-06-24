@@ -20,7 +20,7 @@ from typing import Any, BinaryIO
 LOGGING_TRACE_LVL = 5
 logger = logging.getLogger("postcard_creator")
 logging.addLevelName(LOGGING_TRACE_LVL, "TRACE")
-setattr(logger, "trace", lambda *args: logger.log(LOGGING_TRACE_LVL, *args))
+logger.trace = lambda *args: logger.log(LOGGING_TRACE_LVL, *args)  # type: ignore[attr-defined]
 
 
 class PostcardCreatorException(Exception):
@@ -63,7 +63,9 @@ class Sender:
         self.country = country
 
     def is_valid(self) -> bool:
-        return all(field for field in [self.prename, self.lastname, self.street, self.zip_code, self.place])
+        return all(
+            field for field in [self.prename, self.lastname, self.street, self.zip_code, self.place]
+        )
 
 
 class Recipient:
@@ -95,7 +97,9 @@ class Recipient:
         self.company_addition = company_addition
 
     def is_valid(self) -> bool:
-        return all(field for field in [self.prename, self.lastname, self.street, self.zip_code, self.place])
+        return all(
+            field for field in [self.prename, self.lastname, self.street, self.zip_code, self.place]
+        )
 
 
 class Postcard:
@@ -120,7 +124,9 @@ class Postcard:
         self.sender = sender
 
     def is_valid(self) -> bool:
-        return bool(self.recipient and self.recipient.is_valid() and self.sender and self.sender.is_valid())
+        return bool(
+            self.recipient and self.recipient.is_valid() and self.sender and self.sender.is_valid()
+        )
 
     def validate(self) -> None:
         if self.recipient is None or not self.recipient.is_valid():
@@ -176,7 +182,7 @@ class PostcardCreator:
     sees the same error if a Token has no auth — matches upstream.
     """
 
-    def __init__(self, token: "Token | None" = None) -> None:
+    def __init__(self, token: Token | None = None) -> None:
         if token is None or getattr(token, "token", None) is None:
             raise PostcardCreatorException("No Token given")
         self.token = token
@@ -187,7 +193,7 @@ class PostcardCreator:
         # through normal lookup; this is the upstream's proxy pattern.
         def method(*args: Any, **kwargs: Any) -> Any:
             logger.debug(
-                "Forwarding method to shim implementation: '{}'".format(method_name),
+                f"Forwarding method to shim implementation: '{method_name}'",
             )
             return getattr(self.impl, method_name)(*args, **kwargs)
 

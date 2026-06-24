@@ -19,7 +19,7 @@ from postcards._vendor.postcard_creator.postcard_creator import PostcardCreatorE
 LOGGING_TRACE_LVL = 5
 logger = logging.getLogger("postcard_creator")
 logging.addLevelName(LOGGING_TRACE_LVL, "TRACE")
-setattr(logger, "trace", lambda *args: logger.log(LOGGING_TRACE_LVL, *args))
+logger.trace = lambda *args: logger.log(LOGGING_TRACE_LVL, *args)  # type: ignore[attr-defined]
 
 
 class Token:
@@ -34,9 +34,9 @@ class Token:
 
     def __init__(self, _protocol: str = "https://") -> None:
         self.protocol = _protocol
-        self.base = "{}account.post.ch".format(self.protocol)
-        self.swissid = "{}login.swissid.ch".format(self.protocol)
-        self.token_url = "{}postcardcreator.post.ch/saml/SSO/alias/defaultAlias".format(self.protocol)
+        self.base = f"{self.protocol}account.post.ch"
+        self.swissid = f"{self.protocol}login.swissid.ch"
+        self.token_url = f"{self.protocol}postcardcreator.post.ch/saml/SSO/alias/defaultAlias"
         self.legacy_headers: dict[str, str] = {
             "User-Agent": (
                 "Mozilla/5.0 (Linux; Android 6.0.1; wv) "
@@ -59,7 +59,9 @@ class Token:
         self.token_implementation: str | None = None
         self.cache_token: bool = False
 
-    def has_valid_credentials(self, username: str | None, password: str | None, method: str = "mixed") -> bool:
+    def has_valid_credentials(
+        self, username: str | None, password: str | None, method: str = "mixed"
+    ) -> bool:
         """Shim stub.
 
         The upstream method performs a live SwissID login. The shim
@@ -94,7 +96,7 @@ class Token:
     # ``fetch_token`` patch it on the instance instead.
     def __getattr__(self, name: str) -> Any:
         raise AttributeError(
-            "postcards._vendor.postcard_creator.token.Token has no attribute {!r} "
+            f"postcards._vendor.postcard_creator.token.Token has no attribute {name!r} "
             "in the shim; the upstream implementation is only invoked by "
-            "Token.fetch_token, which the shim does not implement.".format(name)
+            "Token.fetch_token, which the shim does not implement."
         )

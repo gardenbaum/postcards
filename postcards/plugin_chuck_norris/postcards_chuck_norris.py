@@ -191,7 +191,7 @@ class PostcardsChuckNorris(Postcards):
             jokes = self._filter_by_category(jokes, cli_args.category)
 
         if not jokes:
-            self.logger.error("No jokes found for category: {}".format(cli_args.category))
+            self.logger.error(f"No jokes found for category: {cli_args.category}")
             sys.exit(1)
 
         exclude_file: str | None = None
@@ -207,7 +207,7 @@ class PostcardsChuckNorris(Postcards):
 
         if not jokes:
             self.logger.error(
-                "No more jokes to choose from. everything excluded by {}".format(cli_args.duplicate_file)
+                f"No more jokes to choose from. everything excluded by {cli_args.duplicate_file}"
             )
             sys.exit(1)
 
@@ -224,8 +224,8 @@ class PostcardsChuckNorris(Postcards):
         else:
             url = get_random_image_url()
 
-        self.logger.debug("keyword: {}, text: {}".format(keyword, postcard_text))
-        self.logger.debug("url: {}".format(url))
+        self.logger.debug(f"keyword: {keyword}, text: {postcard_text}")
+        self.logger.debug(f"url: {url}")
 
         if cli_args.duplicate_file and exclude_file is not None:
             with open(exclude_file, "a", encoding="utf-8") as excludes:

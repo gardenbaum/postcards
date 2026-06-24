@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import random
 
-
 # Camera naming conventions. Each entry is (prefix, range, width).
 # The numeric ``range`` is the exclusive upper bound for the suffix;
 # ``width`` is the zero-padded width.
