@@ -24,19 +24,26 @@ cd "$(dirname "$0")/.."
 
 PYTHON="${PYTHON:-python3}"
 
-# Make the toolchain available. The legacy runtime deps (postcard-creator==2.2,
-# Js2Py, etc.) do not install cleanly on Python 3.12/3.13, so we install the
-# package with --no-deps and then add the dev tools as a separate step. M1
-# replaces the runtime dep set.
+# Make the toolchain available. M1 modernized the runtime dep set so it
+# installs cleanly on Python 3.12 / 3.13; the [dev] extra bundles ruff,
+# mypy, pytest, and pytest-cov.
+#
+# pip discovery: prefer `python -m pip` (works for `python -m venv`-style
+# venvs); if pip is missing from the venv (the case for `uv venv`-managed
+# venvs in CI), fall back to `uv pip install`. This lets the same gate
+# script run unchanged in both setups.
 if [[ "${SKIP_INSTALL:-0}" != "1" ]]; then
-    echo ">> installing package (editable, no runtime deps) + dev tools"
-    "$PYTHON" -m pip install --upgrade pip >/dev/null
-    "$PYTHON" -m pip install --no-deps -e .
-    "$PYTHON" -m pip install \
-        "ruff>=0.5" \
-        "mypy>=1.10" \
-        "pytest>=8" \
-        "pytest-cov>=5"
+    echo ">> installing package (editable, with [dev] extra) + dev tools"
+    if "$PYTHON" -m pip --version >/dev/null 2>&1; then
+        "$PYTHON" -m pip install --upgrade pip >/dev/null 2>&1 || true
+        "$PYTHON" -m pip install -e ".[dev]"
+    elif command -v uv >/dev/null 2>&1; then
+        uv pip install --python "$PYTHON" --upgrade pip >/dev/null 2>&1 || true
+        uv pip install --python "$PYTHON" -e ".[dev]"
+    else
+        echo "error: neither pip nor uv is available to install the dev tools" >&2
+        exit 1
+    fi
 fi
 
 echo

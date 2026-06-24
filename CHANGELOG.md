@@ -23,16 +23,6 @@ as is practical for a wrapper around an unofficial upstream API.
   the M0 lint/type exemptions on the legacy package and brings the
   runtime dependencies up to current releases.
 
-### Notes
-
-- The `pyproject.toml` lists the runtime dependencies exactly as the
-  legacy `requirements.txt` did; the runtime dep set is intentionally
-  not modernized in M0 (see the M1 card).
-- The gate installs the package with `pip install --no-deps -e ".[dev]"`
-  in M0 because the legacy runtime deps (`postcard-creator==2.2`,
-  `Js2Py==0.50`, etc.) do not install cleanly on Python 3.12 / 3.13.
-  M1 replaces them.
-
 - **M1 — dependency modernization + test suite.** Replaces the upstream
   `postcard-creator==2.2` PyPI package (which transitively depends on
   `Js2Py`/`pyjsparser`, `cookies`, `python-resize-image`, `pytz`,
@@ -63,3 +53,10 @@ as is practical for a wrapper around an unofficial upstream API.
   Post backend (`tests/test_send_integration.py`) — the mock is the
   single source of truth for the backend's contract; the live API is
   never exercised in CI.
+
+### Notes
+
+- The gate installs the package with `pip install -e ".[dev]"` (M1
+  modernized the runtime dep set, so `--no-deps` is no longer
+  required) and falls back to `uv pip install --python X` when pip is
+  missing from the venv (the case for `uv venv`-managed venvs in CI).
