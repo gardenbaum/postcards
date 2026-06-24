@@ -88,6 +88,10 @@ postcards-chuck-norris = "postcards.plugin_chuck_norris.postcards_chuck_norris:m
 [tool.hatch.build.targets.wheel]
 packages = [
     "postcards",
+    "postcards.backend",
+    "postcards.config",
+    "postcards.image",
+    "postcards.models",
     "postcards._vendor",
     "postcards._vendor.postcard_creator",
     "postcards.plugin_chuck_norris",

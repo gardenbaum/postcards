@@ -54,6 +54,84 @@ as is practical for a wrapper around an unofficial upstream API.
   single source of truth for the backend's contract; the live API is
   never exercised in CI.
 
+- **M1 — backend interface + SwissID consumer backend.** Introduces
+  the typed `PostcardBackend` Protocol every Swiss Post network call
+  must go through (`docs/CONSTITUTION.md` §1.1). The new
+  `postcards.backend` package ships:
+  - `base.PostcardBackend` — runtime-checkable Protocol with the four
+    operations the consumer flow exposes (login, quota, preview,
+    send), plus typed payloads (`AddressSpec`, `PostcardSpec`,
+    `QuotaInfo`, `PreviewInfo`, `SendResult`) as frozen dataclasses.
+  - `mock.MockBackend` — in-memory implementation that records every
+    login / preview / send. It is the single source of truth for the
+    backend's contract in tests and the `POSTCARDS_BACKEND=mock`
+    fallback for developers exercising the CLI surface.
+  - `swissid.SwissIdConsumerBackend` — production wrapper around the
+    vendored `postcard_creator` shim; translates between the
+    protocol's dataclasses and the shim's `Sender` / `Recipient` /
+    `Postcard` types.
+  - `registry.select_backend` — selection driven by the
+    `POSTCARDS_BACKEND` env var or the `backend` field of the config
+    file; raises `BackendNotAvailableError` on typos and lists the
+    valid names in the message.
+  - `postcards.config.ConfigLayer` — typed loader that resolves
+    credentials via the constitution's precedence order (CLI >
+    `POSTCARDS_USERNAME` + `POSTCARDS_PASSWORD` > OS keyring under
+    service `postcards` > gitignored config file). Every
+    `AccountConfig` carries a `source` field that records which path
+    resolved it for diagnostics.
+
+  No CLI behaviour change yet — the legacy send flow still uses the
+  shim directly via `_create_pcc_wrappers`. Routing
+  `do_command_send` through `select_backend()` lands in a later
+  milestone so the new abstraction becomes the only network path.
+
+  Test count: 73 → 127 (+54). Total coverage: 43% → 73%.
+  `postcards/backend/*` is at 94–100% coverage; `postcards/config/*`
+  is at 98%. New tests live in `tests/test_backend_selection.py`,
+  `tests/test_config_layer.py`, and `tests/test_backend_integration.py`.
+
+- **M1 — A6 image pipeline + postcard model.** Adds the typed
+  user-facing domain models the CLI builds before handing a card
+  to a backend:
+
+  * `postcards.models` — `Recipient`, `Sender` (aliases over
+    `AddressSpec` so call sites read like the upstream Swiss Post
+    API), `Message` (frozen dataclass, ≤ 500 chars, with a
+    `from_text` builder), and `Postcard` (the high-level model with
+    a `from_image` classmethod that runs the pipeline).
+  * `postcards.image` — the A6 image pipeline:
+    - `dimensions.py` — `Orientation` (StrEnum), `A6_LANDSCAPE_*` /
+      `A6_PORTRAIT_*` pixel sizes (1500×1062 / 1062×1500, the
+      exact dimensions the Swiss Postcard Creator accepts),
+      `A6_ASPECT_RATIO` (148/105 ≈ √2), `SUPPORTED_FORMATS`
+      (`{"JPEG", "PNG"}`).
+    - `pipeline.py` — `load_image` (path / bytes / `BinaryIO`),
+      `normalize_orientation` (EXIF transpose, preserves format),
+      `validate_format`, `detect_orientation`,
+      `center_crop_to_aspect`, `resize_to_a6` (LANCZOS,
+      RGBA → white flatten, grayscale → RGB), `encode_jpeg`,
+      and the convenience wrapper `prepare_postcard_image`. All
+      public entry points raise `ImageError` on failure so callers
+      catch a single exception type.
+
+  The protocol's `PostcardBackend.send` / `.preview` now accept the
+  user-facing `Postcard` (carrying processed JPEG **bytes**) instead
+  of the protocol-level `PostcardSpec` (carrying a file-like
+  `BinaryIO`). `SwissIdConsumerBackend.send` translates the
+  `Postcard` → shim types internally and wraps the picture bytes
+  in `io.BytesIO` for the shim. `PostcardSpec` remains as the
+  internal transport payload (frozen dataclass with
+  `BinaryIO | None`) for callers that want to short-circuit the
+  user-facing layer.
+
+  Test count: 127 → 205 (+78). Total coverage: 73% → 77%.
+  `postcards/image/*` and `postcards/models/*` are at 100% coverage.
+  New tests live in `tests/test_image_pipeline.py` (46 tests),
+  `tests/test_postcard_model.py` (32 tests), and an additional
+  end-to-end pipeline → Postcard → MockBackend integration test in
+  `tests/test_backend_integration.py`.
+
 ### Notes
 
 - The gate installs the package with `pip install -e ".[dev]"` (M1
