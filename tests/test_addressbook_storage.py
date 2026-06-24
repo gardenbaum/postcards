@@ -160,12 +160,12 @@ class TestSaveAddressBook:
         import postcards.addressbook.storage as storage_mod
 
         original_dump = storage_mod.json.dump
-        storage_mod.json.dump = boom  # type: ignore[assignment]
+        storage_mod.json.dump = boom
         try:
             with pytest.raises(RuntimeError, match="simulated write failure"):
                 save_address_book(_sample_address_book(), target)
         finally:
-            storage_mod.json.dump = original_dump  # type: ignore[assignment]
+            storage_mod.json.dump = original_dump
 
         # The destination file does not exist (the rename
         # never happened) and the temp file is cleaned up.
