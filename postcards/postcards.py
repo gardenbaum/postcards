@@ -163,7 +163,21 @@ class Postcards:
         picture_stream: Any | None = None,
         cli_args: argparse.Namespace | None = None,
     ) -> None:
-        if self._is_plugin():
+        # M3: the modern plugin system (``postcards.plugins``) is
+        # config-driven. When ``config.json`` carries a
+        # ``payload.plugin`` field, the new registry-based path is
+        # taken; otherwise the legacy ``_is_plugin()`` branch
+        # (legacy subclasses of :class:`Postcards`) is preserved for
+        # backward compatibility with the ``postcards-folder`` /
+        # ``postcards-yaml`` / ... console scripts.
+        plugin_result = self._resolve_modern_plugin(plugin_payload or {}, cli_args=cli_args)
+        if plugin_result is not None:
+            result_image, result_message = plugin_result
+            if not message and result_message:
+                message = result_message
+            if not picture_stream and result_image is not None:
+                picture_stream = result_image
+        elif self._is_plugin():
             cli_args_to_pass: argparse.Namespace = (
                 cli_args if cli_args is not None else argparse.Namespace()
             )
@@ -192,6 +206,69 @@ class Postcards:
             self.logger.info("postcard not sent because of mock=True")
         else:
             self.logger.info("postcard is successfully sent")
+
+    def _resolve_modern_plugin(
+        self,
+        plugin_payload: dict,
+        cli_args: argparse.Namespace | None = None,
+    ) -> tuple[Any, str | None] | None:
+        """Apply the M3 plugin API to ``plugin_payload`` if requested.
+
+        Returns ``None`` when ``plugin_payload`` does not declare a
+        modern plugin (no ``plugin`` key, or the key is empty).
+        Otherwise returns ``(picture_stream, message)`` from the
+        plugin's :meth:`Plugin.render`. ``message`` may be ``None``
+        when the plugin did not produce one.
+        """
+        name = plugin_payload.get("plugin") if plugin_payload else None
+        if not isinstance(name, str) or not name:
+            return None
+
+        # Import inside the method so importing :mod:`postcards.postcards`
+        # does not pull the modern plugin stack on every legacy use.
+        from postcards.plugins import PluginContext, load_plugin
+        from postcards.plugins.errors import PluginError
+
+        # The ``plugin`` key is reserved for the plugin name; the
+        # rest of the payload is forwarded to ``configure()``.
+        plugin_config = {k: v for k, v in plugin_payload.items() if k != "plugin"}
+
+        # Translate argparse.Namespace into the plugin context's
+        # mapping. Plugins see a plain dict of option names instead
+        # of the legacy argparse.Namespace.
+        options: dict[str, Any] = {}
+        if cli_args is not None:
+            for attr in (
+                "keyword",
+                "safe_search",
+                "category",
+                "duplicate_file",
+            ):
+                value = getattr(cli_args, attr, None)
+                if value is not None:
+                    options[attr] = value
+
+        try:
+            plugin = load_plugin(name, plugin_config)
+        except PluginError as exc:
+            self.logger.error("plugin %s could not be loaded: %s", name, exc)
+            sys.exit(1)
+
+        try:
+            result = plugin.render()
+        except PluginError as exc:
+            self.logger.error("plugin %s render failed: %s", name, exc)
+            sys.exit(1)
+
+        self.logger.info(
+            "plugin %s produced a picture (message=%s)",
+            name,
+            "yes" if result.message else "no",
+        )
+        # Silence the unused-binding warning while keeping the
+        # import for downstream readers.
+        _ = PluginContext
+        return (result.image, result.message)
 
     def delegate_send_free_card(self, pcc_wrapper: Any, postcard: Any, mock_send: bool) -> None:
         pcc_wrapper.send_free_card(postcard=postcard, mock_send=mock_send)
@@ -339,6 +416,16 @@ class Postcards:
             sys.exit(1)
 
     def _read_picture(self, location: str) -> Any:
+        """Return a binary stream of the picture at ``location``.
+
+        M3: always returns an in-memory :class:`io.BytesIO` so the
+        caller does not have to manage a file-handle lifetime.
+        Previously this returned an open file handle, which
+        leaked file descriptors when the caller (e.g. the M2
+        integration tests) forgot to close it.
+        """
+        from io import BytesIO
+
         if location.startswith("http"):
             headers = {
                 "User-Agent": (
@@ -353,13 +440,15 @@ class Postcards:
             }
             self.logger.debug("reading picture from the internet at " + location)
             request = urllib.request.Request(location, None, headers)
-            return urllib.request.urlopen(request)
+            with urllib.request.urlopen(request) as response:
+                return BytesIO(response.read())
         location = self._make_absolute_path(location)
         self.logger.debug("reading picture from " + location)
         if not os.path.isfile(location):
             self.logger.error("picture not found at " + location)
             sys.exit(1)
-        return open(location, "rb")
+        with open(location, "rb") as fp:
+            return BytesIO(fp.read())
 
     def _make_absolute_path(self, path: str) -> str:
         if os.path.isabs(path):

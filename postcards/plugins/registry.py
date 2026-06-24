@@ -23,6 +23,16 @@ point under the same name, the programmatic registration wins
 (``register`` overwrites). This is intentional: a host application
 that vendors a plugin should be able to override the entry-point
 version without rebuilding the package.
+
+Lazy loading
+------------
+
+The in-tree plugin modules are imported lazily on the first
+:meth:`Registry.get` / :meth:`Registry.names` / etc. call. This
+keeps the cold-start cost of the legacy ``postcards.postcards``
+import path small — the modern plugin stack pulls in
+``yaml``, ``PIL``, and the entry-point metadata scan, which
+the legacy CLI does not need.
 """
 
 from __future__ import annotations
@@ -57,6 +67,18 @@ class Registry:
     def __init__(self) -> None:
         self._plugins: dict[str, type[Any]] = {}
         self._descriptions: dict[str, str] = {}
+        self._builtin_loaded = False
+
+    def _ensure_loaded(self) -> None:
+        """Trigger lazy imports on first read access."""
+        if self._builtin_loaded:
+            return
+        # Importing the package triggers the module-level
+        # ``register(...)`` calls at the bottom of each plugin
+        # module.
+        import postcards.plugins.builtin  # noqa: F401
+
+        self._builtin_loaded = True
 
     # ------------------------------------------------------------------
     # Registration
@@ -97,6 +119,10 @@ class Registry:
             raise ValueError("plugin name must be non-empty")
         if not isinstance(plugin_cls, type):
             raise ValueError(f"plugin_cls must be a class, got {type(plugin_cls).__name__}")
+        # Make sure subsequent reads (get / names / ...) pick up
+        # the newly-registered class even when the caller skipped
+        # the lazy import.
+        self._builtin_loaded = True
         self._plugins[name] = plugin_cls
         if description is not None:
             self._descriptions[name] = description
@@ -126,6 +152,7 @@ class Registry:
             When the name is not registered. The error message
             lists the registered names to make the typo obvious.
         """
+        self._ensure_loaded()
         try:
             return self._plugins[name]
         except KeyError as exc:
@@ -134,18 +161,22 @@ class Registry:
 
     def has(self, name: str) -> bool:
         """Return ``True`` when ``name`` is registered."""
+        self._ensure_loaded()
         return name in self._plugins
 
     def names(self) -> list[str]:
         """Return the sorted list of registered plugin names."""
+        self._ensure_loaded()
         return sorted(self._plugins)
 
     def description_for(self, name: str) -> str:
         """Return the registered description for ``name`` (or ``""``)."""
+        self._ensure_loaded()
         return self._descriptions.get(name, "")
 
     def items(self) -> list[tuple[str, type[Any]]]:
         """Return ``(name, class)`` pairs sorted by name."""
+        self._ensure_loaded()
         return [(name, self._plugins[name]) for name in self.names()]
 
     # ------------------------------------------------------------------
@@ -184,9 +215,12 @@ class Registry:
         """Remove every registered plugin.
 
         Intended for tests that need a clean slate between cases.
+        Resets ``_builtin_loaded`` so the next read triggers the
+        lazy import again.
         """
         self._plugins.clear()
         self._descriptions.clear()
+        self._builtin_loaded = False
 
 
 #: The package-wide default registry. Built-ins register into

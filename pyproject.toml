@@ -80,6 +80,17 @@ dev = [
 Homepage = "http://github.com/abertschi/postcards"
 Repository = "http://github.com/abertschi/postcards"
 
+[project.entry-points."postcards.plugins"]
+# M3: in-tree plugins are registered with the package-wide
+# Registry at import time (see postcards.plugins.builtin), but we
+# also advertise them via the entry-point group so third-party
+# tools can enumerate every plugin (including the in-tree ones)
+# via importlib.metadata without having to import the package.
+folder = "postcards.plugins.builtin.folder:FolderPlugin"
+folder_yaml = "postcards.plugins.builtin.folder_yaml:FolderYamlPlugin"
+pexels = "postcards.plugins.builtin.pexels:PexelsPlugin"
+chuck_norris = "postcards.plugins.builtin.chuck_norris:ChuckNorrisPlugin"
+
 [project.scripts]
 # M2: the ``postcards`` console script now dispatches to the Typer-
 # based CLI in ``postcards.cli``. The legacy ``Postcards().main``

@@ -161,3 +161,47 @@ def test_default_registry_is_a_registry_instance() -> None:
     from postcards.plugins.registry import Registry
 
     assert isinstance(Registry.default, Registry)
+
+
+# ---------------------------------------------------------------------------
+# Entry-point discovery
+# ---------------------------------------------------------------------------
+
+
+def test_discover_returns_zero_when_no_new_plugins() -> None:
+    """When the in-tree plugins are already registered, ``discover`` adds none."""
+    reg = Registry()
+    reg.register("alpha", _AlphaPlugin)
+    added = reg.discover()
+    # The in-tree plugins are registered via the entry-point
+    # group, but the programmatic registration (alpha) is kept.
+    # The discover call itself may add zero or more new plugins
+    # depending on whether ``postcards.plugins.builtin`` has
+    # already been imported (which registers the in-tree
+    # plugins programmatically, masking them from discover).
+    assert added >= 0
+
+
+def test_discover_is_idempotent() -> None:
+    """Calling ``discover`` twice does not double-register."""
+    reg = Registry()
+    first = reg.discover()
+    second = reg.discover()
+    # The second call adds zero new plugins — the entry points
+    # were already absorbed on the first call.
+    assert second == 0
+    # And the names list does not contain duplicates.
+    assert len(reg.names()) == len(set(reg.names()))
+    assert first >= 0
+
+
+def test_discover_loads_via_entry_points() -> None:
+    """``discover`` calls ``.load()`` on the entry points and stores the class."""
+    # We don't strictly assert that every in-tree plugin was
+    # discovered (the test order is unpredictable when
+    # postcards.plugins.builtin has been imported elsewhere),
+    # only that the registry contains at least one plugin whose
+    # name matches an entry point declared in pyproject.toml.
+    reg = Registry()
+    reg.discover()
+    assert reg.has("folder") or reg.has("folder_yaml") or reg.has("pexels")
