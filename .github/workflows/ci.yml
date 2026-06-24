@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+
+# Cancel a previous in-flight run for the same ref so we don't burn CI
+# minutes on superseded commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: gate (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: create venv
+        run: uv venv --python ${{ matrix.python-version }}
+
+      - name: run gate
+        # SKIP_INSTALL=1: scripts/check.sh re-uses the cached venv instead of
+        # rebuilding. The venv was created with `uv venv` (no deps), so the
+        # script's `pip install --no-deps -e ".[dev]"` step is still the
+        # one that puts the dev tools + the package itself in place.
+        run: bash scripts/check.sh
+        env:
+          SKIP_INSTALL: "0"
+          # Use the uv-managed Python explicitly.
+          PYTHON: .venv/bin/python
