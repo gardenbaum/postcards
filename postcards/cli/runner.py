@@ -5,18 +5,18 @@ script calls, plus a small :func:`run` helper that wraps
 :class:`typer.testing.CliRunner` so tests have a single import to
 use.
 
-Why a dedicated runner
-----------------------
+Why a separate test runner
+--------------------------
 
-:class:`typer.testing.CliRunner` is verbose to instantiate (it
-needs a ``mix_stderr=False`` flag, a ``color=False`` flag for
-deterministic output in tests, and a fresh instance per test
-method to keep state isolated). The tests in
-``tests/test_typer_cli.py`` would otherwise duplicate that
-boilerplate dozens of times. A single :func:`run` helper keeps
-the call site short and lets us swap the runner out in the
-future (e.g. for ``click.testing.CliRunner`` directly) without
-touching every test.
+:class:`typer.testing.CliRunner` is the supported way to drive a
+Typer app from a test. It captures stdout/stderr into a
+:class:`typer.testing.Result` so assertions can inspect
+``result.output`` and ``result.exit_code`` without touching the
+real terminal. The production path (:func:`main`) MUST NOT use
+this helper — calling the app via :class:`CliRunner` would
+suppress the help text and the user's error output, because
+the runner captures into a buffer instead of writing to the
+real :data:`sys.stdout`.
 
 Console-script entry point
 --------------------------
@@ -26,21 +26,37 @@ Console-script entry point
     postcards = "postcards.cli.main:main"
 
 ``main()`` is the function :mod:`setuptools` wires up as the
-``postcards`` console script. It calls :func:`run` with ``None``
-so the runner uses :data:`sys.argv` (matching what a user
-types in their shell).
+``postcards`` console script. It calls :data:`app` directly,
+which in turn invokes Click's standard :func:`click.testing.CliRunner.invoke`
+machinery. Click catches :class:`typer.Exit` and any
+:class:`SystemExit` raised by user code and turns them into
+the right process exit code, so :func:`main` itself does not
+need to do anything other than call the app.
+
+Error handling
+--------------
+
+Most command bodies call :func:`postcards.cli.errors.raise_cli_error`
+which raises :class:`typer.Exit` directly. Click catches that
+and records the right exit code; for the production path
+the user sees the message on stderr before the process exits.
+The :class:`postcards.cli.errors.CLIError` class is reserved
+for internal helpers that want a typed exception — the
+:func:`main` wrapper does not catch it (it is not raised on
+the production path today) but the type stays available for
+future use.
 """
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 
 import typer
 from typer.testing import CliRunner
 
 from postcards.cli.app import app
-from postcards.cli.errors import CLIError
+
+__all__ = ["main", "run"]
 
 
 def run(argv: Sequence[str] | None = None) -> typer.testing.Result:
@@ -50,7 +66,7 @@ def run(argv: Sequence[str] | None = None) -> typer.testing.Result:
     ----------
     argv:
         Argument vector to use. ``None`` means "use ``sys.argv[1:]``"
-        so the console-script entry point behaves like a normal
+        so the production entry point behaves like a normal
         CLI. Tests pass an explicit list to drive the CLI without
         touching the process argv.
 
@@ -59,43 +75,28 @@ def run(argv: Sequence[str] | None = None) -> typer.testing.Result:
     typer.testing.Result
         The :class:`typer.testing.Result` from the underlying
         :class:`typer.testing.CliRunner.invoke` call. Tests inspect
-        ``result.exit_code``, ``result.stdout``, and
-        ``result.exception`` to assert behaviour.
+        ``result.exit_code`` and ``result.output`` to assert
+        behaviour. The default ``catch_exceptions=True`` is
+        used so a :class:`typer.Exit` raised inside a command
+        body becomes a clean exit code in the result.
     """
     runner = CliRunner()
-    cli_args: Sequence[str] = list(sys.argv[1:]) if argv is None else list(argv)
-    return runner.invoke(app, cli_args, catch_exceptions=False)
+    cli_args: Sequence[str] = list(argv) if argv is not None else []
+    return runner.invoke(app, cli_args)
 
 
 def main() -> None:
     """Entry point for the ``postcards`` console script.
 
-    Uses :func:`run` so the test path and the production path
-    share their setup logic. The function never returns; it
-    terminates the process via :class:`typer.Exit` or a
-    :class:`SystemExit` from Click's machinery.
+    Calls :data:`postcards.cli.app.app` directly. Click's
+    machinery catches :class:`typer.Exit` (raised by
+    :func:`postcards.cli.errors.raise_cli_error` and the
+    ``--version`` / ``--help`` callbacks) and translates it
+    to the right process exit code, so :func:`main` does not
+    return — it terminates via :class:`SystemExit`.
     """
-    try:
-        result = run()
-    except CLIError as exc:
-        typer.echo(f"error: {exc.message}", err=True)
-        raise SystemExit(exc.exit_code) from exc
-    except SystemExit:
-        # ``typer.Exit`` and Click's "bad usage" path both raise
-        # ``SystemExit``; pass the code through.
-        raise
-    # When ``catch_exceptions=False`` and the command returned
-    # normally, the runner still produces a result with the
-    # captured exit code. ``typer.Exit(code=0)`` from a command
-    # body is folded into ``result.exit_code``; commands that
-    # complete without an explicit ``typer.Exit`` produce
-    # ``exit_code=0`` too.
-    if result.exit_code != 0:
-        raise SystemExit(result.exit_code)
+    app()
 
 
 if __name__ == "__main__":
     main()
-
-
-__all__ = ["main", "run"]

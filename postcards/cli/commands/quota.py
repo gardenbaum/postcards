@@ -18,7 +18,7 @@ import typer
 from postcards.backend import QuotaInfo, select_backend
 from postcards.backend.registry import BackendNotAvailableError
 from postcards.cli.app import app
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 from postcards.cli.options import backend_option, password_option, username_option
 
 
@@ -41,7 +41,7 @@ def quota_cmd(
     test the path end-to-end without burning a daily quota).
     """
     if not username:
-        raise CLIError(
+        raise_cli_error(
             "no username supplied (pass --username or set POSTCARDS_USERNAME)",
             exit_code=2,
         )
@@ -54,7 +54,7 @@ def quota_cmd(
 
         password = os.environ.get("POSTCARDS_PASSWORD") or ""
     if not password:
-        raise CLIError(
+        raise_cli_error(
             "no password supplied (pass --password, set POSTCARDS_PASSWORD, "
             "or use the multi-account config file)",
             exit_code=2,
@@ -63,7 +63,7 @@ def quota_cmd(
     try:
         instance = select_backend(env={"POSTCARDS_BACKEND": backend} if backend else None)
     except BackendNotAvailableError as exc:
-        raise CLIError(str(exc)) from exc
+        raise_cli_error(str(exc))
 
     try:
         instance.login(username, password)
@@ -73,12 +73,12 @@ def quota_cmd(
         # SwissID login cannot run unattended. The mock backend
         # is the supported way to exercise the quota path in
         # CI / dev.
-        raise CLIError(
+        raise_cli_error(
             f"backend {instance.name!r} does not support unattended login: {exc}. "
-            f"Use --backend=mock to exercise the path against the in-memory mock.",
-        ) from exc
+            "Use --backend=mock to exercise the path against the in-memory mock."
+        )
     except Exception as exc:
-        raise CLIError(f"login failed: {exc}") from exc
+        raise_cli_error(f"login failed: {exc}")
 
     info: QuotaInfo = instance.quota()
     if info.available:

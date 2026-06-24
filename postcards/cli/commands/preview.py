@@ -25,7 +25,7 @@ from pathlib import Path
 import typer
 
 from postcards.cli.app import app
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 from postcards.cli.options import (
     config_path_option,
     key_option,
@@ -103,10 +103,7 @@ def preview_cmd(
     on it.
     """
     if picture is None and not message:
-        raise CLIError(
-            "either --picture or --message is required (or both)",
-            exit_code=2,
-        )
+        raise_cli_error("either --picture or --message is required (or both)", exit_code=2)
 
     # Resolve accounts and the recipient/sender through the typed
     # loader so the preview can summarise them without touching
@@ -123,7 +120,7 @@ def preview_cmd(
         recipient = layer.load_recipient()
         sender = layer.load_sender()
     except ConfigError as exc:
-        raise CLIError(str(exc)) from exc
+        raise_cli_error(str(exc))
 
     typer.echo("Preview (no card will be sent):")
     typer.echo("")
@@ -162,7 +159,7 @@ def preview_cmd(
     try:
         cards.do_command_send(args)
     except (FileNotFoundError, ValueError) as exc:
-        raise CLIError(f"preview failed: {exc}") from exc
+        raise_cli_error(f"preview failed: {exc}")
 
     typer.echo("Preview OK.")
 

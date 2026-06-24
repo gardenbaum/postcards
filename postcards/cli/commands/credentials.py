@@ -18,7 +18,7 @@ import argparse
 import typer
 
 from postcards.cli.app import app
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 from postcards.cli.options import key_option
 from postcards.postcards import DEFAULT_KEY, Postcards
 
@@ -35,7 +35,7 @@ def _run_decrypt(credential: str, key: str) -> None:
     except SystemExit:
         raise
     except Exception as exc:
-        raise CLIError(f"could not decrypt: {exc}") from exc
+        raise_cli_error(f"could not decrypt: {exc}")
 
 
 @app.command(

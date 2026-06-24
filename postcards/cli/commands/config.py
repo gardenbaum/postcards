@@ -26,7 +26,7 @@ import typer
 
 from postcards.cli.app import app
 from postcards.cli.config_io import read_config, resolve_config_path, write_config
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 
 # ``config`` is a Typer sub-group; the @config_app.command(...)
 # decorators below register the subcommands.
@@ -66,7 +66,7 @@ def config_init(
     """
     target = resolve_config_path(path)
     if target.exists() and not force:
-        raise CLIError(
+        raise_cli_error(
             f"refusing to overwrite existing file at {target} (pass --force to override)",
             exit_code=2,
         )
@@ -139,7 +139,7 @@ def config_set(
     """
     target = resolve_config_path(path)
     if not target.is_file():
-        raise CLIError(
+        raise_cli_error(
             f"config file not found at {target}; run 'postcards config init' first",
             exit_code=2,
         )
@@ -182,7 +182,7 @@ def _set_by_dotted_path(data: dict[str, Any], key_path: str, value: str) -> None
     """
     parts = key_path.split(".")
     if not parts:
-        raise CLIError("key path must not be empty", exit_code=2)
+        raise_cli_error("key path must not be empty", exit_code=2)
     cursor: Any = data
     for index, part in enumerate(parts[:-1]):
         next_part = parts[index + 1]
@@ -190,11 +190,11 @@ def _set_by_dotted_path(data: dict[str, Any], key_path: str, value: str) -> None
         if isinstance(cursor, list):
             try:
                 part_idx = int(part)
-            except ValueError as exc:
-                raise CLIError(
+            except ValueError:
+                raise_cli_error(
                     f"cannot traverse list with non-integer key {part!r}",
                     exit_code=2,
-                ) from exc
+                )
             while len(cursor) <= part_idx:
                 cursor.append({} if not next_is_index else None)
             if not isinstance(cursor[part_idx], dict):
@@ -208,8 +208,8 @@ def _set_by_dotted_path(data: dict[str, Any], key_path: str, value: str) -> None
     if isinstance(cursor, list):
         try:
             leaf_idx = int(leaf)
-        except ValueError as exc:
-            raise CLIError(f"cannot assign to non-integer list key {leaf!r}", exit_code=2) from exc
+        except ValueError:
+            raise_cli_error(f"cannot assign to non-integer list key {leaf!r}", exit_code=2)
         while len(cursor) <= leaf_idx:
             cursor.append(None)
         cursor[leaf_idx] = value

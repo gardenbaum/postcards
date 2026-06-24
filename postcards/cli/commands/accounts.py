@@ -31,7 +31,7 @@ import typer
 
 from postcards.cli.app import app
 from postcards.cli.config_io import read_config, resolve_config_path, write_config
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 
 accounts_app = typer.Typer(
     name="accounts",
@@ -52,7 +52,7 @@ def _load_accounts(path: Path) -> tuple[list[dict], dict]:
     config = read_config(path)
     accounts = config.get("accounts") or []
     if not isinstance(accounts, list):
-        raise CLIError(
+        raise_cli_error(
             f"'accounts' field in {path} must be a list, got {type(accounts).__name__}",
         )
     return list(accounts), config
@@ -94,12 +94,12 @@ def accounts_add(
     target = resolve_config_path(path)
     accounts, config = _load_accounts(target)
     if any(a.get("username") == username for a in accounts):
-        raise CLIError(f"account {username!r} already exists in {target}")
+        raise_cli_error(f"account {username!r} already exists in {target}")
     if password is None:
         prompted: str = typer.prompt("Password", hide_input=True, confirmation_prompt=False)
         password = prompted
     if not password:
-        raise CLIError("password must not be empty", exit_code=2)
+        raise_cli_error("password must not be empty", exit_code=2)
     stored = _maybe_encrypt(password, key)
     accounts.append({"username": username, "password": stored})
     config["accounts"] = accounts
@@ -161,7 +161,7 @@ def accounts_use(
     target = resolve_config_path(path)
     accounts, config = _load_accounts(target)
     if not any(a.get("username") == username for a in accounts):
-        raise CLIError(
+        raise_cli_error(
             f"account {username!r} not in {target}; add it first with 'postcards accounts add'",
             exit_code=2,
         )

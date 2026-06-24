@@ -16,7 +16,7 @@ from pathlib import Path
 import typer
 
 from postcards.cli.app import app
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 
 
 @app.command(
@@ -55,7 +55,7 @@ def generate_cmd(
     """
     target = path.expanduser().resolve()
     if target.exists() and not force:
-        raise CLIError(
+        raise_cli_error(
             f"refusing to overwrite existing file at {target} (pass --force to override)",
             exit_code=2,
         )
@@ -69,9 +69,9 @@ def generate_cmd(
         # from a source checkout without ``pip install -e .``).
         # Surface the failure as a clean CLI error rather than
         # an obscure ``ImportError`` or ``FileNotFoundError``.
-        raise CLIError(
+        raise_cli_error(
             f"could not load bundled template {template_name!r}: {exc}",
-        ) from exc
+        )
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")

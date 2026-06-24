@@ -36,7 +36,7 @@ from __future__ import annotations
 import typer
 
 from postcards.cli.app import app
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 
 legacy_app = typer.Typer(
     name="legacy",
@@ -75,11 +75,11 @@ def legacy_run(
     """
     try:
         from postcards.postcards import main as legacy_main
-    except ImportError as exc:  # pragma: no cover — defensive
-        raise CLIError(
+    except ImportError:  # pragma: no cover — defensive
+        raise_cli_error(
             "the legacy postcards.postcards module is unavailable; "
             "use the dedicated plugin entry points (postcards-folder, ...)"
-        ) from exc
+        )
 
     argv: list[str] = ["postcards", *(args or [])]
     legacy_main(argv)

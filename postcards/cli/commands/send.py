@@ -37,7 +37,7 @@ import typer
 
 from postcards import __version__ as _postcards_version
 from postcards.cli.app import app
-from postcards.cli.errors import CLIError
+from postcards.cli.errors import raise_cli_error
 from postcards.cli.options import (
     all_accounts_option,
     config_path_option,
@@ -135,10 +135,7 @@ def send_cmd(
     init`` for a starter template.
     """
     if picture is None and not message:
-        raise CLIError(
-            "either --picture or --message is required (or both)",
-            exit_code=2,
-        )
+        raise_cli_error("either --picture or --message is required (or both)", exit_code=2)
 
     cards = Postcards()
     args = _build_namespace(

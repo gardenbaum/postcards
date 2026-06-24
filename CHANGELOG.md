@@ -132,6 +132,73 @@ as is practical for a wrapper around an unofficial upstream API.
   end-to-end pipeline → Postcard → MockBackend integration test in
   `tests/test_backend_integration.py`.
 
+- **M2 — Typer-based CLI.** Migrates the user-facing
+  ``postcards`` console script from the legacy ``argparse`` parser
+  in :mod:`postcards.postcards` to a Typer-based command tree
+  under the new :mod:`postcards.cli` package. The new commands are:
+
+  * ``postcards send`` — send a card. Honours ``--dry-run`` and
+    ``--all-accounts``; falls back to the active account from the
+    config file when ``--username`` / ``--password`` are not
+    passed.
+  * ``postcards preview`` — show what ``send`` would do, without
+    actually sending. Same arguments as ``send``.
+  * ``postcards generate`` — write the bundled starter config to
+    a given path. Refuses to clobber an existing file unless
+    ``--force`` is passed.
+  * ``postcards config {init,show,set}`` — manage the config
+    file. ``init`` is an alias for ``generate``; ``show`` prints
+    the resolved config (passwords masked by default; opt in via
+    ``--no-redact``); ``set`` mutates a dotted key path
+    (``recipient.city``, ``accounts.0.username``, ...).
+  * ``postcards accounts {add,list,use}`` — manage the
+    multi-account list. ``add`` appends a username / password
+    pair (and refuses to create a duplicate); ``list`` shows
+    the accounts with passwords masked; ``use`` sets the
+    ``active_account`` field.
+  * ``postcards quota`` — print the free-card quota for an
+    account. Honours ``--backend mock`` for offline exercises
+    of the code path.
+  * ``postcards status`` — print the resolved CLI configuration
+    (config path, backend, account, version).
+  * ``postcards encrypt`` / ``postcards decrypt`` — the
+    credential crypto commands, migrated from the legacy
+    ``argparse`` form.
+  * ``postcards legacy run`` — escape hatch that delegates to
+    the pre-M2 ``argparse`` parser. The dedicated plugin entry
+    points (``postcards-folder``, ``postcards-yaml``,
+    ``postcards-pexels``, ``postcards-random``,
+    ``postcards-chuck-norris``) keep their argparse-based
+    implementation and are unaffected by the M2 migration.
+
+  All subcommands render rich ``--help`` with grouped options
+  and use the constitution's ``raise_cli_error`` helper for
+  user-facing errors (typed ``NoReturn`` so ``str | None``
+  arguments are narrowed to ``str`` by mypy after a guard).
+  The production entry point :func:`postcards.cli.main.main`
+  calls :data:`postcards.cli.app.app` directly (not the
+  ``typer.testing.CliRunner``) so help text and error messages
+  reach the real stdout / stderr. The test entry point
+  :func:`postcards.cli.runner.run` continues to wrap
+  ``typer.testing.CliRunner`` for hermetic test assertions.
+
+  Test count: 205 → 239 (+34). The new tests live in
+  ``tests/test_typer_cli.py`` and cover: every subcommand's
+  ``--help`` (10 subcommands), top-level help listing all
+  subcommands, ``postcards`` with no args, ``--version``,
+  ``send`` validation (requires ``--picture`` or ``--message``,
+  ``--dry-run`` flow against a mocked Swiss Post shim),
+  ``preview`` end-to-end (mocked shim), ``generate`` clobber
+  protection, ``config init`` / ``show`` / ``set`` (including
+  password redaction defaults and list-index paths),
+  ``accounts add`` / ``list`` / ``use`` (including duplicate
+  detection and active-account marking), ``status`` output,
+  ``quota --backend mock`` plus the missing-username error
+  path, ``encrypt`` / ``decrypt`` round-trip and wrong-key
+  behavior, the ``legacy`` subcommand, the ``CLIError`` class
+  contract, ``-vv`` logging configuration, and the
+  :func:`main` entry point.
+
 ### Notes
 
 - The gate installs the package with `pip install -e ".[dev]"` (M1
