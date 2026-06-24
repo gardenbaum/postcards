@@ -124,9 +124,10 @@ def test_select_backend_swissid_returns_implementation() -> None:
     assert backend.name == "swissid"
     # Sending without authentication raises — confirms the backend
     # actually guards against the unauthenticated path.
-    from postcards.backend.base import AddressSpec, PostcardSpec
+    from postcards.backend.base import AddressSpec
+    from postcards.models import Message, Postcard
 
-    spec = PostcardSpec(
+    card = Postcard(
         sender=AddressSpec(
             prename="a",
             lastname="b",
@@ -141,8 +142,8 @@ def test_select_backend_swissid_returns_implementation() -> None:
             zip_code="i",
             place="j",
         ),
-        message="hello",
+        message=Message.from_text("hello"),
         picture=None,
     )
     with pytest.raises(RuntimeError, match="not authenticated"):
-        backend.send(spec)
+        backend.send(card)

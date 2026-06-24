@@ -2,9 +2,9 @@
 
 Satisfies ``docs/CONSTITUTION.md`` invariant §1.2: every code path
 that calls the Swiss Post network MUST go through a backend
-interface that has a mocked implementation. This test exercises the
-new :class:`postcard.backend.base.PostcardBackend` abstraction end to
-end against :class:`postcard.backend.mock.MockBackend`, and also
+interface that has a mocked implementation. This test exercises
+the :class:`postcard.backend.base.PostcardBackend` abstraction end
+to end against :class:`postcard.backend.mock.MockBackend`, and also
 exercises :class:`SwissIdConsumerBackend` by monkey-patching the
 shim's network methods (the shim itself raises ``NotImplementedError``
 for live calls — see :mod:`postcards._vendor.postcard_creator`).
@@ -16,9 +16,9 @@ Two flows are covered:
    was implemented faithfully.
 2. ``SwissIdConsumerBackend.send`` — drives the production code path
    against the shim with patched network methods, verifying that
-   ``PostcardSpec`` is translated into ``Sender`` / ``Recipient`` /
-   ``Postcard`` and that ``send_free_card`` is invoked with the
-   expected ``mock_send`` flag.
+   :class:`postcards.models.Postcard` is translated into
+   ``Sender`` / ``Recipient`` / ``Postcard`` and that
+   ``send_free_card`` is invoked with the expected ``mock_send`` flag.
 
 No live network is exercised at any point.
 """
@@ -31,48 +31,66 @@ from datetime import UTC, datetime
 
 import pytest
 
-from postcards._vendor.postcard_creator import (
-    Postcard,
-    Token,
+from postcards._vendor.postcard_creator import Token
+from postcards._vendor.postcard_creator.postcard_creator import (
+    Postcard as ShimPostcard,
 )
-from postcards._vendor.postcard_creator.postcard_creator import PostcardCreatorBase
+from postcards._vendor.postcard_creator.postcard_creator import (
+    PostcardCreatorBase,
+)
 from postcards.backend import (
     AddressSpec,
     MockBackend,
-    PostcardSpec,
     QuotaInfo,
     SendResult,
     SwissIdConsumerBackend,
     select_backend,
 )
 from postcards.backend.base import PreviewInfo
+from postcards.models import Message, Postcard
 
 # ---------------------------------------------------------------------------
 # Fixtures + helpers
 # ---------------------------------------------------------------------------
 
 
+def _make_address() -> AddressSpec:
+    """A reusable valid address for the integration tests."""
+    return AddressSpec(
+        prename="Maria",
+        lastname="Muster",
+        street="Bahnhofstrasse 1",
+        zip_code="8000",
+        place="Zurich",
+    )
+
+
+def _make_recipient() -> AddressSpec:
+    """A reusable valid recipient with a salutation."""
+    return AddressSpec(
+        prename="Hans",
+        lastname="Muster",
+        street="Bahnhofstrasse 2",
+        zip_code="8000",
+        place="Zurich",
+        salutation="Mr.",
+    )
+
+
 @pytest.fixture
-def valid_postcard() -> PostcardSpec:
-    """A valid :class:`PostcardSpec` for the integration tests."""
-    return PostcardSpec(
-        sender=AddressSpec(
-            prename="Maria",
-            lastname="Muster",
-            street="Bahnhofstrasse 1",
-            zip_code="8000",
-            place="Zurich",
-        ),
-        recipient=AddressSpec(
-            prename="Hans",
-            lastname="Muster",
-            street="Bahnhofstrasse 2",
-            zip_code="8000",
-            place="Zurich",
-            salutation="Mr.",
-        ),
-        message="Hello from postcards",
-        picture=io.BytesIO(b"\xff\xd8\xff\xe0fake-jpeg"),
+def valid_postcard() -> Postcard:
+    """A valid :class:`Postcard` for the integration tests.
+
+    The ``picture`` field is filled with synthetic JPEG bytes — the
+    pipeline has already run by the time we get here, so the
+    integration tests focus on the backend protocol rather than on
+    image processing (which has its own dedicated test module).
+    """
+    return Postcard(
+        sender=_make_address(),
+        recipient=_make_recipient(),
+        message=Message.from_text("Hello from postcards"),
+        picture=b"\xff\xd8\xff\xe0fake-jpeg",
     )
 
 
@@ -96,7 +114,7 @@ def test_select_backend_mock_returns_mock_backend_instance() -> None:
 
 
 def test_mock_backend_full_send_flow_records_each_call(
-    mock_backend: MockBackend, valid_postcard: PostcardSpec
+    mock_backend: MockBackend, valid_postcard: Postcard
 ) -> None:
     """``login → quota → preview → send`` records each step on the mock."""
     mock_backend.login("alice", "alice-secret")
@@ -123,7 +141,7 @@ def test_mock_backend_full_send_flow_records_each_call(
 
 
 def test_mock_backend_send_with_mock_flag_marks_result(
-    mock_backend: MockBackend, valid_postcard: PostcardSpec
+    mock_backend: MockBackend, valid_postcard: Postcard
 ) -> None:
     """``send(..., mock=True)`` records a result with ``mock=True`` and skips the network."""
     mock_backend.login("bob", "bob-secret")
@@ -159,7 +177,7 @@ def test_mock_backend_login_failure_injection(mock_backend: MockBackend) -> None
 
 
 def test_mock_backend_records_separate_state_per_instance(
-    valid_postcard: PostcardSpec,
+    valid_postcard: Postcard,
 ) -> None:
     """Two :class:`MockBackend` instances do not share state."""
     a = MockBackend()
@@ -175,31 +193,31 @@ def test_mock_backend_records_separate_state_per_instance(
 # ---------------------------------------------------------------------------
 
 
-def test_postcard_spec_is_valid_requires_addresses_and_payload(
-    valid_postcard: PostcardSpec,
+def test_postcard_is_valid_requires_addresses_and_payload(
+    valid_postcard: Postcard,
 ) -> None:
-    """``PostcardSpec.is_valid`` checks sender / recipient / payload."""
+    """``Postcard.is_valid`` checks sender / recipient / payload."""
     assert valid_postcard.is_valid() is True
 
     # Empty message + no picture is invalid (the Swiss Post web flow
     # requires at least one of the two).
-    empty = PostcardSpec(
+    empty = Postcard(
         sender=valid_postcard.sender,
         recipient=valid_postcard.recipient,
-        message="",
+        message=Message.from_text(""),
         picture=None,
     )
     assert empty.is_valid() is False
 
-    # A blank address in either side invalidates the spec.
+    # A blank address in either side invalidates the postcard.
     bad_recipient = AddressSpec(prename="", lastname="x", street="x", zip_code="x", place="x")
-    bad_spec = PostcardSpec(
+    bad = Postcard(
         sender=valid_postcard.sender,
         recipient=bad_recipient,
-        message="x",
+        message=Message.from_text("x"),
         picture=None,
     )
-    assert bad_spec.is_valid() is False
+    assert bad.is_valid() is False
 
 
 def test_quota_info_from_dict_parses_upstream_shape() -> None:
@@ -259,7 +277,7 @@ def shim_with_mocked_network() -> Iterator[SwissIdConsumerBackend]:
 
     def mock_send_free_card(
         self: PostcardCreatorBase,
-        postcard: Postcard,
+        postcard: ShimPostcard,
         mock_send: bool = False,
         **kwargs: object,
     ) -> None:
@@ -299,9 +317,9 @@ def test_swissid_backend_login_calls_token_has_valid_credentials(
     assert shim._account == "alice"
 
 
-def test_swissid_backend_send_translates_spec_to_shim_classes(
+def test_swissid_backend_send_translates_postcard_to_shim_classes(
     shim_with_mocked_network: SwissIdConsumerBackend,
-    valid_postcard: PostcardSpec,
+    valid_postcard: Postcard,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``send`` constructs ``Sender`` / ``Recipient`` / ``Postcard`` and calls ``send_free_card``."""
@@ -318,7 +336,7 @@ def test_swissid_backend_send_translates_spec_to_shim_classes(
 
 def test_swissid_backend_send_propagates_mock_flag(
     shim_with_mocked_network: SwissIdConsumerBackend,
-    valid_postcard: PostcardSpec,
+    valid_postcard: Postcard,
 ) -> None:
     """``send(..., mock=True)`` forwards ``mock_send=True`` to the shim."""
     shim = shim_with_mocked_network
@@ -327,15 +345,15 @@ def test_swissid_backend_send_propagates_mock_flag(
     assert result.mock is True
 
 
-def test_swissid_backend_send_rejects_invalid_spec(
+def test_swissid_backend_send_rejects_invalid_postcard(
     shim_with_mocked_network: SwissIdConsumerBackend,
-    valid_postcard: PostcardSpec,
+    valid_postcard: Postcard,
 ) -> None:
     """A blank recipient / sender raises ``ValueError`` before reaching the shim."""
     shim = shim_with_mocked_network
     shim.login("alice", "pw")
 
-    bad = PostcardSpec(
+    bad = Postcard(
         sender=valid_postcard.sender,
         recipient=AddressSpec(
             prename="",
@@ -344,7 +362,7 @@ def test_swissid_backend_send_rejects_invalid_spec(
             zip_code="x",
             place="x",
         ),
-        message="hi",
+        message=Message.from_text("hi"),
         picture=None,
     )
     with pytest.raises(ValueError, match="invalid"):
@@ -353,7 +371,7 @@ def test_swissid_backend_send_rejects_invalid_spec(
 
 def test_swissid_backend_requires_login_before_send(
     shim_with_mocked_network: SwissIdConsumerBackend,
-    valid_postcard: PostcardSpec,
+    valid_postcard: Postcard,
 ) -> None:
     """``send`` without ``login`` first raises ``RuntimeError``."""
     with pytest.raises(RuntimeError, match="not authenticated"):
@@ -373,7 +391,7 @@ def test_swissid_backend_quota_returns_quota_info(
 
 def test_swissid_backend_preview_does_not_call_shim(
     shim_with_mocked_network: SwissIdConsumerBackend,
-    valid_postcard: PostcardSpec,
+    valid_postcard: Postcard,
 ) -> None:
     """``preview`` is a no-op against the shim (no upstream preview endpoint)."""
     preview = shim_with_mocked_network.preview(valid_postcard)
@@ -407,21 +425,79 @@ def test_swissid_backend_satisfies_postcard_backend_protocol() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_postcard_spec_picture_stream_is_passed_through_to_send(
-    mock_backend: MockBackend, valid_postcard: PostcardSpec
+def test_postcard_picture_bytes_are_passed_through_to_send(
+    mock_backend: MockBackend, valid_postcard: Postcard
 ) -> None:
-    """The same BinaryIO object is stored on the recorded ``SendResult``."""
+    """The same ``Postcard`` object is stored on the recorded ``SendResult``."""
     mock_backend.login("alice", "pw")
     result = mock_backend.send(valid_postcard)
-    assert result.postcard.picture is valid_postcard.picture
+    assert result.postcard is valid_postcard
+    assert result.postcard.picture == valid_postcard.picture
 
 
-def test_send_result_now_stamps_current_utc() -> None:
+def test_send_result_now_stamps_current_utc(valid_postcard: Postcard) -> None:
     """``SendResult.now()`` stamps the result with the current UTC time."""
-    spec = PostcardSpec(
-        sender=AddressSpec(prename="a", lastname="b", street="c", zip_code="d", place="e"),
-        recipient=AddressSpec(prename="f", lastname="g", street="h", zip_code="i", place="j"),
-        message="hi",
-    )
-    result = SendResult.now(backend="mock", account="alice", mock=False, postcard=spec)
+    result = SendResult.now(backend="mock", account="alice", mock=False, postcard=valid_postcard)
     assert result.sent_at <= datetime.now().astimezone()
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: image pipeline -> Postcard -> MockBackend.send
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_to_postcard_to_mock_backend_send() -> None:
+    """A real image source runs through the pipeline and arrives at the mock.
+
+    This is the integration test the M1 task card calls out: a
+    MOCKED backend receives a real :class:`Postcard` whose picture
+    was processed by the image pipeline. No network is exercised.
+    """
+    from PIL import Image
+
+    from postcards.image import (
+        A6_LANDSCAPE_HEIGHT,
+        A6_LANDSCAPE_WIDTH,
+        Orientation,
+    )
+
+    # Source: 2400x1600 JPEG, wider than A6 -> LANDSCAPE.
+    raw_buffer = io.BytesIO()
+    Image.new("RGB", (2400, 1600), color="purple").save(raw_buffer, format="JPEG", quality=80)
+    raw_bytes = raw_buffer.getvalue()
+
+    card = Postcard.from_image(
+        sender=AddressSpec(
+            prename="Maria",
+            lastname="Muster",
+            street="Bahnhofstrasse 1",
+            zip_code="8000",
+            place="Zurich",
+        ),
+        recipient=AddressSpec(
+            prename="Hans",
+            lastname="Muster",
+            street="Bahnhofstrasse 2",
+            zip_code="8000",
+            place="Zurich",
+            salutation="Mr.",
+        ),
+        message=Message.from_text("Hello from postcards"),
+        image_source=raw_bytes,
+        orientation=Orientation.LANDSCAPE,
+    )
+
+    # The pipeline produced a real JPEG at the expected dimensions.
+    assert card.picture is not None
+    assert card.picture[:3] == b"\xff\xd8\xff"
+    reloaded = Image.open(io.BytesIO(card.picture))
+    assert reloaded.size == (A6_LANDSCAPE_WIDTH, A6_LANDSCAPE_HEIGHT)
+
+    # The mock backend records the same card we built.
+    backend = MockBackend()
+    backend.login("alice", "alice-secret")
+    result = backend.send(card, mock=True)
+    assert isinstance(result, SendResult)
+    assert result.postcard is card
+    assert backend.sent[0].postcard is card
+    assert backend.sent[0].mock is True
