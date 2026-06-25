@@ -10,6 +10,27 @@ quota is available, every send is recorded. Tests that need a
 failure mode mutate ``self.quota_info`` or ``self.should_fail_login``
 before invoking the CLI.
 
+M5 additions
+------------
+
+The mock now supports two failure-injection knobs that drive the
+retry path:
+
+* :attr:`transient_errors_remaining` — an integer counter that,
+  when positive, makes the next ``send`` call raise a
+  :class:`TransientBackendError` and decrements the counter.
+  Tests set this to ``N`` to exercise the retry helper with
+  exactly ``N`` transient failures.
+* :attr:`send_exception` — an exception instance the next ``send``
+  raises. Lets tests inject a non-transient error (e.g. an
+  :class:`AuthenticationError`) and assert the CLI does not
+  retry it.
+
+The mock never raises on invalid cards — validation is the
+caller's responsibility. ``confirmation`` is a per-call counter
+prefixed with ``mock-`` so tests can correlate the result with
+the record.
+
 The class is also exported as a CLI fallback via
 ``POSTCARDS_BACKEND=mock`` — useful for developers exercising the
 CLI surface without burning a daily quota.
@@ -27,6 +48,7 @@ from postcards.backend.base import (
     QuotaInfo,
     SendResult,
 )
+from postcards.backend.exceptions import TransientBackendError
 
 if TYPE_CHECKING:
     from postcards.models.postcard import Postcard
@@ -58,6 +80,10 @@ class MockBackend:
     should_fail_login: bool = False
     login_error: Exception | None = None
 
+    # M5: send-side failure injection.
+    transient_errors_remaining: int = 0
+    send_exception: Exception | None = None
+
     # ------------------------------------------------------------------
     # PostcardBackend protocol implementation
     # ------------------------------------------------------------------
@@ -87,7 +113,23 @@ class MockBackend:
         caller's responsibility. ``confirmation`` is a per-call
         counter prefixed with ``mock-`` so tests can correlate the
         result with the record.
+
+        M5: when ``send_exception`` is set, raise it once and clear
+        the field so the next call succeeds. When
+        ``transient_errors_remaining`` is positive, raise a
+        :class:`TransientBackendError` and decrement the counter
+        so retry-driven tests can drive a fixed number of failures.
         """
+        if self.send_exception is not None:
+            exc = self.send_exception
+            self.send_exception = None
+            raise exc
+        if self.transient_errors_remaining > 0:
+            self.transient_errors_remaining -= 1
+            raise TransientBackendError(
+                f"MockBackend: simulated transient error "
+                f"({self.transient_errors_remaining + 1} remaining)"
+            )
         result = SendResult(
             backend=self.name,
             account=self._last_account(),

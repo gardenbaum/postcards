@@ -63,6 +63,16 @@ dependencies = [
     # (``postcards-folder``, ``postcards-yaml``, ...) keep their
     # argparse-based implementation for now.
     "typer>=0.12",
+    # M5: keyring is the OS-level credential store for the
+    # ``postcards keyring`` subcommand and the credential-resolution
+    # source in the constitution (§2.2). The ``keyring`` package is
+    # small, has no transitive runtime deps beyond the standard
+    # library on most platforms, and is already a de-facto standard
+    # in the Python ecosystem. The ConfigLayer still tolerates a
+    # missing keyring package at import time so a thin CI install
+    # that omits it keeps working; new code (the keyring subcommand,
+    # the doctor) imports the package directly.
+    "keyring>=24",
 ]
 
 [project.optional-dependencies]

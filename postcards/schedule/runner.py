@@ -89,6 +89,8 @@ from postcards.backend.base import (
     QuotaInfo,
     SendResult,
 )
+from postcards.backend.exceptions import QuotaExhaustedError as BackendQuotaExhaustedError
+from postcards.backend.messages import translate as translate_backend_error
 from postcards.models.message import Message
 from postcards.models.postcard import Postcard
 from postcards.schedule.models import (
@@ -110,12 +112,15 @@ _LOGGER = logging.getLogger("postcards.schedule.runner")
 # ---------------------------------------------------------------------------
 
 
-class QuotaExhaustedError(RuntimeError):
+class QuotaExhaustedError(BackendQuotaExhaustedError):
     """Raised by :func:`_dispatch_job` when the backend quota is unavailable.
 
     The runner catches this specifically and reschedules the job
     to the next quota window; any other exception becomes a
-    :attr:`JobStatus.FAILED` outcome.
+    :attr:`JobStatus.FAILED` outcome. Subclassing the
+    backend-level :class:`QuotaExhaustedError` means a single
+    ``except QuotaExhaustedError`` at the CLI layer catches both
+    the runner variant and the bare backend exception.
     """
 
 
@@ -303,15 +308,21 @@ def _dispatch_one(
             message=f"quota exhausted; rescheduled to {rescheduled_at.isoformat()}",
         )
     except Exception as exc:
+        # M5: run the exception through the shared translator so the
+        # ``last_error`` field and the per-job ``message`` carry an
+        # actionable hint instead of the raw ``str(exc)``. The
+        # ``send failed:`` prefix is preserved so existing
+        # ``schedule list`` parsers keep matching.
+        actionable, _exit_code = translate_backend_error(exc)
         updated = job.with_status(
             JobStatus.FAILED,
             last_run_at=now,
-            last_error=str(exc) or exc.__class__.__name__,
+            last_error=actionable,
         )
         return updated, ExecutionResult(
             job_id=job.id,
             outcome=JobOutcome.FAILED,
-            message=f"send failed: {exc}",
+            message=actionable,
         )
 
     # Successful dispatch — update bookkeeping and possibly advance.
@@ -546,8 +557,19 @@ def _send_via_backend(
     The function performs the quota check before
     :meth:`PostcardBackend.send` so the job's status reflects the
     exhausted quota rather than the backend's send-side error.
-    """
 
+    M5: emits structured log lines on login / quota / send so a
+    user running ``schedule run -vv`` sees exactly which step
+    succeeded and which step blocked. The transient-error
+    classification happens *inside* the backend's retry helper
+    — by the time we get here, a
+    :class:`postcards.backend.exceptions.TransientBackendError`
+    has already been retried to exhaustion.
+    """
+    _LOGGER.info(
+        "dispatching job %s via backend",
+        job.id,
+    )
     backend = backend_factory()
     username = job.username or ""
     password = job.password or ""
@@ -561,9 +583,20 @@ def _send_via_backend(
     backend.login(username, password)
     quota = backend.quota()
     if not quota.available:
+        _LOGGER.warning(
+            "job %s: quota exhausted (next available at %s); rescheduling",
+            job.id,
+            quota.next_available_at.isoformat() if quota.next_available_at else "unknown",
+        )
         raise QuotaExhaustedError(_quota_message(quota))
-
-    return backend.send(postcard, mock=False)
+    _LOGGER.debug("job %s: quota ok; sending", job.id)
+    result = backend.send(postcard, mock=False)
+    _LOGGER.info(
+        "job %s: sent (confirmation=%s)",
+        job.id,
+        result.confirmation or "n/a",
+    )
+    return result
 
 
 def _quota_message(quota: QuotaInfo) -> str:

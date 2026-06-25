@@ -28,6 +28,7 @@ from postcards.addressbook.models import (
 )
 from postcards.addressbook.storage import save_address_book, save_template_book
 from postcards.backend.base import AddressSpec, QuotaInfo
+from postcards.backend.exceptions import AuthenticationError
 from postcards.backend.mock import MockBackend
 from postcards.schedule import (
     FakeClock,
@@ -436,6 +437,170 @@ class TestErrors:
 
         assert results[0].outcome is JobOutcome.FAILED
         assert "invalid credentials" in (new_book.jobs[0].last_error or "")
+
+
+# ---------------------------------------------------------------------------
+# M5: quota-exhausted exception is the unified backend-level type
+# ---------------------------------------------------------------------------
+
+
+class TestQuotaExceptionHierarchy:
+    """M5 made the runner's :class:`QuotaExhaustedError` subclass the
+    backend-level one. A single ``except`` at the CLI layer catches
+    both — this test pins that."""
+
+    def test_runner_quota_exhausted_is_a_backend_quota_exhausted(
+        self, address_book: AddressBook
+    ) -> None:
+        from postcards.backend.exceptions import QuotaExhaustedError as BackendQuotaError
+
+        assert issubclass(QuotaExhaustedError, BackendQuotaError)
+
+
+# ---------------------------------------------------------------------------
+# M5: actionable error messages in the dispatch path
+# ---------------------------------------------------------------------------
+
+
+class TestActionableErrors:
+    """M5 routed every dispatch-time exception through
+    :func:`postcards.backend.messages.translate` so the job's
+    ``last_error`` field and the per-job ``message`` carry an
+    actionable hint instead of the raw ``str(exc)`` text."""
+
+    def test_authentication_error_carries_hint(self, address_book: AddressBook) -> None:
+        clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
+        backend = MockBackend()
+        backend.should_fail_login = True
+        backend.login_error = AuthenticationError("bad pw")
+
+        job = _job()
+        book = ScheduleBook(jobs=(job,))
+
+        new_book, results = run_due_jobs(
+            book,
+            clock=clock,
+            backend_factory=_factory(backend),
+            address_book=address_book,
+        )
+
+        assert results[0].outcome is JobOutcome.FAILED
+        last_error = new_book.jobs[0].last_error or ""
+        # The translator's hint mentions the credentials env vars.
+        assert "credentials" in last_error.lower()
+        assert "POSTCARDS_USERNAME" in last_error
+        # The per-job message mirrors the actionable text.
+        assert results[0].message == last_error
+
+    def test_quota_exhausted_subclass_carries_hint(self, address_book: AddressBook) -> None:
+        # The runner catches its own ``QuotaExhaustedError`` first
+        # (rescheduling the job rather than failing it), but the
+        # actionable message still has to make sense to the user.
+        clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
+        when = datetime(2026, 6, 25, 0, 0, tzinfo=UTC)
+        backend = MockBackend(
+            quota_info=QuotaInfo(available=False, next_available_at=when, retention_days=1)
+        )
+
+        job = _job()
+        book = ScheduleBook(jobs=(job,))
+
+        _new_book, results = run_due_jobs(
+            book,
+            clock=clock,
+            backend_factory=_factory(backend),
+            address_book=address_book,
+        )
+
+        assert results[0].outcome is JobOutcome.SKIPPED_QUOTA
+        assert "rescheduled" in results[0].message
+        assert when.isoformat() in results[0].message
+
+    def test_transient_error_message_is_actionable(self, address_book: AddressBook) -> None:
+        clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
+        backend = MockBackend(transient_errors_remaining=99)
+
+        job = _job()
+        book = ScheduleBook(jobs=(job,))
+
+        _new_book, results = run_due_jobs(
+            book,
+            clock=clock,
+            backend_factory=_factory(backend),
+            address_book=address_book,
+        )
+
+        assert results[0].outcome is JobOutcome.FAILED
+        last_error = results[0].message
+        # The transient branch of the translator mentions the
+        # network and a recovery hint.
+        assert "network" in last_error.lower() or "transient" in last_error.lower()
+        assert "--verbose" in last_error or "--backend=mock" in last_error
+
+
+# ---------------------------------------------------------------------------
+# M5: structured logging in the dispatch path
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredLogging:
+    """The runner logs at every dispatch step so ``-vv`` shows exactly
+    where a job got stuck. The tests pin that the right log lines
+    are emitted, and that quota exhaustion produces a WARN line
+    that surfaces the next-available timestamp."""
+
+    def test_successful_dispatch_logs_info(
+        self,
+        address_book: AddressBook,
+        backend: MockBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
+        job = _job()
+        book = ScheduleBook(jobs=(job,))
+
+        with caplog.at_level(logging.DEBUG, logger="postcards.schedule.runner"):
+            run_due_jobs(
+                book,
+                clock=clock,
+                backend_factory=_factory(backend),
+                address_book=address_book,
+            )
+
+        # The dispatch path emits "dispatching" + "sent" at INFO.
+        info_lines = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert any("dispatching" in msg for msg in info_lines)
+        assert any("sent" in msg for msg in info_lines)
+
+    def test_quota_exhausted_logs_warning_with_next_available(
+        self,
+        address_book: AddressBook,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+        from datetime import UTC, datetime
+
+        clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
+        when = datetime(2026, 6, 25, 0, 0, tzinfo=UTC)
+        backend = MockBackend(
+            quota_info=QuotaInfo(available=False, next_available_at=when, retention_days=1)
+        )
+        job = _job()
+        book = ScheduleBook(jobs=(job,))
+
+        with caplog.at_level(logging.WARNING, logger="postcards.schedule.runner"):
+            run_due_jobs(
+                book,
+                clock=clock,
+                backend_factory=_factory(backend),
+                address_book=address_book,
+            )
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("quota exhausted" in r.getMessage() for r in warnings)
+        assert any(when.isoformat() in r.getMessage() for r in warnings)
 
 
 # ---------------------------------------------------------------------------

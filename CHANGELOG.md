@@ -9,6 +9,132 @@ as is practical for a wrapper around an unofficial upstream API.
 
 ### Added
 
+- **M5 — retries, quota awareness, structured logging.**
+  The CLI now handles flaky networks, the daily
+  1-card quota, and verbose logging as first-class
+  concerns. See `docs/ROBUSTNESS.md` for the full
+  reference.
+
+  - **Retry / backoff.** New `postcards.retry` module
+    with a typed `RetryPolicy` dataclass (4 attempts,
+    0.5s base delay, 2x multiplier, 8s ceiling) and a
+    `with_retries()` helper implementing AWS-style full
+    jitter. The SwissID backend wraps every
+    `backend.login`, `backend.quota`, and `backend.send`
+    call in it; the classifier retries on
+    `TransientBackendError` and on `requests` network
+    exceptions (`ConnectionError`, `Timeout`, 5xx
+    `HTTPError`). `AuthenticationError`, `QuotaExhaustedError`,
+    and `NotImplementedError` (the shim's "not implemented"
+    stub) are non-retryable. New
+    `postcards.backend.exceptions` module owns the
+    typed hierarchy:
+
+    ```
+    BackendError(RuntimeError)
+    ├── AuthenticationError
+    ├── QuotaExhaustedError(next_available_at, retention_days)
+    └── TransientBackendError
+    ```
+
+  - **Quota awareness.** `postcards quota` gained
+    `--wait` (block until the quota opens, with
+    `--max-wait` and `--poll` controls) and `--no-fail`
+    (exit 0 even on exhaustion, for shell-script gates).
+    The next-available timestamp is included in every
+    quota-related error message. `schedule run` catches
+    `QuotaExhaustedError` and reschedules the affected
+    job to the next UTC midnight; the runner's
+    `QuotaExhaustedError` subclasses the backend-level
+    one so a single `except` catches both.
+
+  - **Structured logging.** New `postcards.log` module
+    owns the log-level mapping (`-v` / `-vv` / `-vvv` →
+    INFO / DEBUG / TRACE), the TRACE custom level
+    (numeric 5, registered at import time), and the
+    standard + brief format strings. Every dispatch
+    step in the schedule runner emits an
+    INFO/DEBUG/WARN line so `schedule run -vv` shows
+    exactly where a job got stuck.
+
+  - **Actionable error messages.** New
+    `postcards.backend.messages.translate` and the
+    CLI-facing `postcards.cli.backend_errors.raise_for_backend_error`
+    translate every typed backend exception into a
+    `(message, exit_code)` pair. The message ends with
+    a hint about the next step (the credential env
+    vars, `postcards quota --wait`, `--backend=mock`,
+    `--verbose`); the exit code is 1 for permanent
+    failures and 75 (`EX_TEMPFAIL`) for transient
+    failures so a cron job can distinguish "retry
+    later" from "fix the config".
+
+  New `postcards/backend/messages.py` and
+  `postcards/cli/backend_errors.py` modules; new
+  `MockBackend` failure-injection knobs
+  (`transient_errors_remaining`, `send_exception`) drive
+  the retry path from tests.
+
+  Test count: 768 → 857 (+89). New tests live in
+  `tests/test_log.py` (12 unit tests on the log module),
+  `tests/test_retry.py` (18 on the retry helper),
+  `tests/test_backend_exceptions.py` (11 on the typed
+  exceptions), `tests/test_backend_errors_cli.py`
+  (19 on the error translator), plus additions to
+  `tests/test_backend_integration.py` (4 retry-driven
+  integration tests), `tests/test_schedule_runner.py`
+  (3 tests on actionable error messages and
+  structured logging), and `tests/test_typer_cli.py`
+  (5 tests on the new `quota` flags).
+
+- **M5 — SwissID login diagnostics + keyring.** Two
+  user-facing surfaces for the credential and
+  authentication flow, both exposed as Typer
+  sub-commands:
+
+  - **`postcards doctor`** runs five checks (config
+    file, credentials, keyring, connectivity, mock-login
+    smoke test) and prints a tabular report. A failure
+    on any check exits 1 with a one-line summary and a
+    next-step hint. The command never authenticates
+    against the live Swiss Post endpoint — the
+    connectivity check probes the consumer landing
+    page, the mock-login check drives
+    :class:`MockBackend`. See `docs/DOCTOR.md`.
+
+  - **`postcards keyring {set,get,delete,list,status}`**
+    wraps the OS keyring as a first-class credential
+    source. `set` writes a password for a username,
+    `get` reports presence (never the plaintext), and
+    `delete` is idempotent. The `list` subcommand
+    prints a one-line explanation — the OS keyring API
+    intentionally does not expose a list-entries call.
+    See `docs/KEYRING.md`.
+
+  - **Precise auth-failure messages.** The
+    `postcards.backend.messages.translate` translator
+    inspects the `AuthenticationError` message for the
+    upstream's 2FA / anomaly-detection phrasings and
+    emits a scenario-specific next-step hint (open
+    https://account.post.ch/ in a browser, complete the
+    2FA prompt, or confirm the device). Every
+    authentication failure now also points the user at
+    `postcards doctor` for a full diagnosis.
+
+  New modules: `postcards/config/keyring.py`
+  (`KeyringStore`, `KeyringStatus`, `KeyringError`),
+  `postcards/cli/commands/keyring.py`,
+  `postcards/cli/commands/doctor.py`. The `keyring`
+  package is now a hard runtime dependency (>=24). New
+  test files: `tests/test_config_keyring.py` (14
+  unit tests on the `KeyringStore` wrapper),
+  `tests/test_keyring_cli.py` (15 CLI tests against a
+  hand-rolled in-memory backend), `tests/test_doctor_cli.py`
+  (25 doctor tests covering every check, every exit
+  code, and the end-to-end CLI), and 7 new tests in
+  `tests/test_backend_errors_cli.py` for the 2FA /
+  anomaly-detection translator branches.
+
 - **M4 — batch send + scheduling.** Multi-recipient
   dispatch plus a local send queue with delayed and
   recurring jobs:

@@ -28,6 +28,9 @@ Public surface
 * :class:`AddressSpec`, :class:`PostcardSpec`, :class:`QuotaInfo`,
   :class:`PreviewInfo`, :class:`SendResult` — typed payloads exchanged
   with the backend.
+* :class:`AuthenticationError`, :class:`QuotaExhaustedError`,
+  :class:`TransientBackendError`, :class:`BackendError` — typed
+  exceptions raised by the backend methods (M5).
 """
 
 from __future__ import annotations
@@ -40,20 +43,30 @@ from postcards.backend.base import (
     QuotaInfo,
     SendResult,
 )
+from postcards.backend.exceptions import (
+    AuthenticationError,
+    BackendError,
+    QuotaExhaustedError,
+    TransientBackendError,
+)
 from postcards.backend.mock import MockBackend
 from postcards.backend.registry import BackendNotAvailableError, available_backends, select_backend
 from postcards.backend.swissid import SwissIdConsumerBackend
 
 __all__ = [
     "AddressSpec",
+    "AuthenticationError",
+    "BackendError",
     "BackendNotAvailableError",
     "MockBackend",
     "PostcardBackend",
     "PostcardSpec",
     "PreviewInfo",
+    "QuotaExhaustedError",
     "QuotaInfo",
     "SendResult",
     "SwissIdConsumerBackend",
+    "TransientBackendError",
     "available_backends",
     "select_backend",
 ]
