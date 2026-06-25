@@ -93,11 +93,55 @@ def translate(exc: BaseException) -> tuple[str, int]:
         )
         return msg, 1
     if isinstance(exc, AuthenticationError):
+        # The upstream SwissID login is fragile: anomaly-detection,
+        # 2FA, and credential rejection are three different
+        # outcomes that all surface as ``AuthenticationError``.
+        # The exception's ``str()`` is the only signal we have to
+        # tell them apart, so the translator inspects the message
+        # for the keywords each scenario uses and points the user
+        # at the right next step. The keywords were chosen from
+        # the upstream's error pages and the project's own
+        # :ref:`docs/SWISSID.md` (see ``docs/SWISSID.md`` for the
+        # exact phrasings we look for).
+        msg_text = str(exc).lower()
+        if any(token in msg_text for token in ("2fa", "two-factor", "two factor", "mfa")):
+            specific = (
+                "SwissID requires two-factor authentication. "
+                "Open https://account.post.ch/ in a browser, "
+                "complete the 2FA prompt, then retry the same "
+                "'postcards send' invocation. The CLI cannot "
+                "complete 2FA on your behalf."
+            )
+        elif any(
+            token in msg_text
+            for token in (
+                "anomaly",
+                "suspicious",
+                "unusual activity",
+                "verify device",
+                "verify your device",
+            )
+        ):
+            specific = (
+                "SwissID flagged this device as suspicious. "
+                "Open https://account.post.ch/ in a browser on the "
+                "same machine, confirm the device (the upstream may "
+                "send an email or SMS confirmation), then retry. "
+                "After a successful browser login the CLI can "
+                "authenticate from the same machine."
+            )
+        else:
+            specific = (
+                "the upstream rejected the credentials. "
+                "Check POSTCARDS_USERNAME / POSTCARDS_PASSWORD, "
+                "update your accounts file with 'postcards accounts add', "
+                "or pass --backend=mock to exercise the path without "
+                "authenticating."
+            )
         msg = (
-            "authentication failed; the upstream rejected the credentials. "
-            "Check POSTCARDS_USERNAME / POSTCARDS_PASSWORD, "
-            "update your accounts file with 'postcards accounts add', "
-            "or pass --backend=mock to exercise the path without authenticating."
+            f"authentication failed: {specific} "
+            "Run 'postcards doctor' for a full diagnosis "
+            "(config / credentials / keyring / connectivity)."
         )
         return msg, 1
     if isinstance(exc, TransientBackendError):

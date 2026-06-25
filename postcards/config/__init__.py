@@ -32,6 +32,7 @@ CLI's command handlers.
 from __future__ import annotations
 
 from postcards.backend.base import AddressSpec
+from postcards.config.keyring import KEYRING_SERVICE, KeyringError, KeyringStatus, KeyringStore
 from postcards.config.loader import (
     AccountConfig,
     ConfigError,
@@ -39,8 +40,12 @@ from postcards.config.loader import (
 )
 
 __all__ = [
+    "KEYRING_SERVICE",
     "AccountConfig",
     "AddressSpec",
     "ConfigError",
     "ConfigLayer",
+    "KeyringError",
+    "KeyringStatus",
+    "KeyringStore",
 ]

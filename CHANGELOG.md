@@ -87,6 +87,54 @@ as is practical for a wrapper around an unofficial upstream API.
   structured logging), and `tests/test_typer_cli.py`
   (5 tests on the new `quota` flags).
 
+- **M5 — SwissID login diagnostics + keyring.** Two
+  user-facing surfaces for the credential and
+  authentication flow, both exposed as Typer
+  sub-commands:
+
+  - **`postcards doctor`** runs five checks (config
+    file, credentials, keyring, connectivity, mock-login
+    smoke test) and prints a tabular report. A failure
+    on any check exits 1 with a one-line summary and a
+    next-step hint. The command never authenticates
+    against the live Swiss Post endpoint — the
+    connectivity check probes the consumer landing
+    page, the mock-login check drives
+    :class:`MockBackend`. See `docs/DOCTOR.md`.
+
+  - **`postcards keyring {set,get,delete,list,status}`**
+    wraps the OS keyring as a first-class credential
+    source. `set` writes a password for a username,
+    `get` reports presence (never the plaintext), and
+    `delete` is idempotent. The `list` subcommand
+    prints a one-line explanation — the OS keyring API
+    intentionally does not expose a list-entries call.
+    See `docs/KEYRING.md`.
+
+  - **Precise auth-failure messages.** The
+    `postcards.backend.messages.translate` translator
+    inspects the `AuthenticationError` message for the
+    upstream's 2FA / anomaly-detection phrasings and
+    emits a scenario-specific next-step hint (open
+    https://account.post.ch/ in a browser, complete the
+    2FA prompt, or confirm the device). Every
+    authentication failure now also points the user at
+    `postcards doctor` for a full diagnosis.
+
+  New modules: `postcards/config/keyring.py`
+  (`KeyringStore`, `KeyringStatus`, `KeyringError`),
+  `postcards/cli/commands/keyring.py`,
+  `postcards/cli/commands/doctor.py`. The `keyring`
+  package is now a hard runtime dependency (>=24). New
+  test files: `tests/test_config_keyring.py` (14
+  unit tests on the `KeyringStore` wrapper),
+  `tests/test_keyring_cli.py` (15 CLI tests against a
+  hand-rolled in-memory backend), `tests/test_doctor_cli.py`
+  (25 doctor tests covering every check, every exit
+  code, and the end-to-end CLI), and 7 new tests in
+  `tests/test_backend_errors_cli.py` for the 2FA /
+  anomaly-detection translator branches.
+
 - **M4 — batch send + scheduling.** Multi-recipient
   dispatch plus a local send queue with delayed and
   recurring jobs:

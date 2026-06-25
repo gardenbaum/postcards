@@ -128,7 +128,11 @@ $ postcards schedule run --quiet
 See [docs/ADDRESS_BOOK.md](docs/ADDRESS_BOOK.md),
 [docs/BATCH.md](docs/BATCH.md) and [docs/SCHEDULE.md](docs/SCHEDULE.md)
 for the full guides to the address book, batch send, and
-scheduling commands.
+scheduling commands. See [docs/DOCTOR.md](docs/DOCTOR.md)
+and [docs/KEYRING.md](docs/KEYRING.md) for the M5
+diagnostics and OS-keyring surfaces, and
+[docs/ROBUSTNESS.md](docs/ROBUSTNESS.md) for the
+retry / quota / structured-logging story.
 
 ## Plugins
 Postcards is designed in a plugin based approach. 

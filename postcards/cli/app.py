@@ -26,6 +26,8 @@ The command modules are split by domain:
 * :mod:`.commands.generate` — ``postcards generate``
 * :mod:`.commands.config`   — ``postcards config {init,show,set}``
 * :mod:`.commands.accounts` — ``postcards accounts {add,list,use}``
+* :mod:`.commands.keyring`  — ``postcards keyring {set,get,delete,list,status}`` (M5)
+* :mod:`.commands.doctor`   — ``postcards doctor`` (M5; diagnostics)
 * :mod:`.commands.addresses` — ``postcards addresses {add,list,show,update,remove}``
 * :mod:`.commands.templates` — ``postcards templates {add,list,show,update,render,remove}``
 * :mod:`.commands.schedule` — ``postcards schedule {add,list,show,remove,retry,run}`` (M4)
@@ -130,7 +132,9 @@ from postcards.cli.commands import (  # noqa: E402, F401  (import-after-callback
     batch,
     config,
     credentials,
+    doctor,
     generate,
+    keyring,
     legacy,
     plugins,
     preview,

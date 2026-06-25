@@ -43,6 +43,67 @@ class TestAuthenticationError:
         assert "POSTCARDS_PASSWORD" in msg
         assert "--backend=mock" in msg
 
+    def test_message_points_at_doctor(self) -> None:
+        """M5: every AuthenticationError message mentions ``postcards doctor``."""
+        exc = AuthenticationError("bad pw")
+        msg, _ = render_cli_error(exc)
+        assert "postcards doctor" in msg
+
+
+class TestAuthenticationErrorSpecialCases:
+    """M5: the auth translator detects 2FA / anomaly-detection signals.
+
+    The upstream SwissID flow raises ``AuthenticationError`` for
+    three distinct scenarios (wrong password, 2FA required,
+    anomaly detection) that all share the same exception
+    type. The translator inspects the message text and emits
+    scenario-specific next-step hints so the user does not
+    have to read docs to figure out what to do.
+    """
+
+    def test_2fa_message_points_at_browser(self) -> None:
+        exc = AuthenticationError("2FA required: open the SwissID app")
+        msg, code = render_cli_error(exc)
+        assert code == 1
+        assert "two-factor" in msg.lower() or "2fa" in msg.lower()
+        # The user should be told to use the browser, not the CLI.
+        assert "browser" in msg.lower() or "https" in msg.lower()
+
+    def test_two_factor_hyphenated_message(self) -> None:
+        """``two-factor`` (hyphenated) triggers the same branch as ``2FA``."""
+        exc = AuthenticationError("Two-factor authentication required")
+        msg, _ = render_cli_error(exc)
+        assert "two-factor" in msg.lower() or "2fa" in msg.lower()
+
+    def test_mfa_message(self) -> None:
+        """``MFA`` is a synonym for 2FA and triggers the same branch."""
+        exc = AuthenticationError("MFA challenge required")
+        msg, _ = render_cli_error(exc)
+        assert "two-factor" in msg.lower() or "2fa" in msg.lower()
+
+    def test_anomaly_detection_message(self) -> None:
+        exc = AuthenticationError("anomaly detected: verify your device")
+        msg, code = render_cli_error(exc)
+        assert code == 1
+        assert "suspicious" in msg.lower() or "anomaly" in msg.lower() or "device" in msg.lower()
+        # The user should be told to open the browser on the
+        # *same* machine (anomaly detection is per-device).
+        assert "browser" in msg.lower() or "https" in msg.lower()
+
+    def test_suspicious_activity_message(self) -> None:
+        """``suspicious activity`` triggers the anomaly-detection branch."""
+        exc = AuthenticationError("Login blocked: suspicious activity detected")
+        msg, _ = render_cli_error(exc)
+        assert "suspicious" in msg.lower() or "anomaly" in msg.lower() or "device" in msg.lower()
+
+    def test_generic_credentials_message_falls_through(self) -> None:
+        """A plain wrong-password message hits the generic branch."""
+        exc = AuthenticationError("invalid username or password")
+        msg, _ = render_cli_error(exc)
+        # Generic branch tells the user to check credentials.
+        assert "POSTCARDS_USERNAME" in msg
+        assert "POSTCARDS_PASSWORD" in msg
+
 
 class TestQuotaExhaustedError:
     def test_includes_next_available_timestamp(self) -> None:
