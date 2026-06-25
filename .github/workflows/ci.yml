@@ -2,9 +2,9 @@ name: ci
 
 on:
   push:
-    branches: [master, develop]
+    branches: [main, develop]
   pull_request:
-    branches: [master, develop]
+    branches: [main, develop]
 
 # Cancel a previous in-flight run for the same ref so we don't burn CI
 # minutes on superseded commits.
