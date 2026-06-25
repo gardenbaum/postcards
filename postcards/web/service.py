@@ -20,9 +20,20 @@ Pillow, already pulled in by the image pipeline and renderer.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
 
 from postcards.backend.base import AddressSpec, PostcardBackend
+from postcards.config import (
+    AccountConfig,
+    ConfigError,
+    ConfigLayer,
+    KeyringError,
+    KeyringStore,
+)
 from postcards.image import Orientation, prepare_postcard_image
 from postcards.models import Message, Postcard
 from postcards.models.message import MAX_MESSAGE_LENGTH
@@ -138,6 +149,125 @@ def validate_draft(draft: PostcardDraft) -> list[str]:
     return problems
 
 
+# ---------------------------------------------------------------------------
+# Authentication — credential resolution, keyring, login/quota check.
+#
+# All of this is network-free *except* check_login, which goes through the
+# backend (so it is still mock-testable). The app surfaces every piece so a
+# user never has to drop to the CLI to manage SwissID credentials.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AuthState:
+    """What the app knows about credential resolution, for the UI to render.
+
+    ``accounts`` are the resolved SwissID accounts (env → keyring → config
+    file, per the constitution's order). Each carries its ``source`` and
+    whether a password was found, so the app can prefill the form and show
+    where the credential came from — without displaying the secret.
+    """
+
+    accounts: tuple[AccountConfig, ...] = ()
+    keyring_available: bool = False
+    keyring_reason: str = ""
+    config_path: str = ""
+    error: str = ""
+
+    def has_accounts(self) -> bool:
+        return bool(self.accounts)
+
+    def usernames(self) -> list[str]:
+        return [a.username for a in self.accounts]
+
+    def find(self, username: str) -> AccountConfig | None:
+        return next((a for a in self.accounts if a.username == username), None)
+
+
+@dataclass(frozen=True)
+class LoginCheck:
+    """Result of a live (or mock) login + quota probe."""
+
+    ok: bool
+    quota_available: bool | None = None
+    detail: str = ""
+
+
+def resolve_auth(
+    *,
+    config_path: Path | str | None = None,
+    env: Mapping[str, str] | None = None,
+    keyring_backend: Any = None,
+) -> AuthState:
+    """Resolve SwissID accounts + keyring status for the app, never raising.
+
+    Wraps :class:`ConfigLayer.load_accounts` (env → keyring → config file)
+    and :meth:`KeyringStore.status`. A missing config / no accounts is a
+    normal empty state, not an error; genuine parse errors are captured in
+    :attr:`AuthState.error` so the app can show them inline.
+    """
+    store = KeyringStore(keyring_backend)
+    status = store.status()
+    layer = ConfigLayer(
+        env=env if env is not None else os.environ,
+        config_path=Path(config_path) if isinstance(config_path, str) else config_path,
+        keyring_backend=keyring_backend,
+    )
+    accounts: tuple[AccountConfig, ...] = ()
+    error = ""
+    try:
+        accounts = tuple(layer.load_accounts())
+    except ConfigError as exc:
+        # "no accounts configured" is expected; surface only real problems.
+        if "no accounts found" not in str(exc):
+            error = str(exc)
+    return AuthState(
+        accounts=accounts,
+        keyring_available=status.available,
+        keyring_reason=status.reason or "",
+        config_path=str(layer.config_path_resolved()),
+        error=error,
+    )
+
+
+def save_to_keyring(username: str, password: str, *, store: KeyringStore | None = None) -> str:
+    """Store ``password`` for ``username`` in the OS keyring.
+
+    Returns a short confirmation message. Raises :class:`KeyringError` when
+    the keyring is unavailable or locked — the app turns that into a notice.
+    """
+    if not username or not password:
+        raise KeyringError("username and password must both be set to save to the keyring")
+    (store or KeyringStore()).set(username, password)
+    return f"Saved password for {username} in the OS keyring."
+
+
+def check_login(backend: PostcardBackend, username: str, password: str) -> LoginCheck:
+    """Probe ``backend`` login + quota, catching every failure for the UI.
+
+    With the mock backend this always succeeds; with the live SwissID
+    backend it performs a real login (which may trigger 2FA / anomaly
+    checks) and reads the daily quota.
+    """
+    if not username or not password:
+        return LoginCheck(ok=False, detail="Enter a SwissID e-mail and password first.")
+    try:
+        backend.login(username, password)
+        quota = backend.quota()
+    except Exception as exc:  # surface any auth/network failure
+        return LoginCheck(ok=False, detail=str(exc))
+    if quota.available:
+        return LoginCheck(
+            ok=True, quota_available=True, detail="Login OK — a card is available today."
+        )
+    when = f" (next: {quota.next_available_at:%Y-%m-%d %H:%M})" if quota.next_available_at else ""
+    return LoginCheck(
+        ok=True,
+        quota_available=False,
+        detail=f"Login OK — daily quota already used{when}.",
+    )
+
+
 def send_draft(
     draft: PostcardDraft,
     *,
@@ -208,11 +338,16 @@ def with_sender_field(draft: PostcardDraft, field_name: str, value: str) -> Post
 
 
 __all__ = [
+    "AuthState",
+    "LoginCheck",
     "PostcardDraft",
     "SendOutcome",
     "build_postcard",
+    "check_login",
     "process_image",
     "render_preview",
+    "resolve_auth",
+    "save_to_keyring",
     "send_draft",
     "validate_draft",
     "with_recipient_field",

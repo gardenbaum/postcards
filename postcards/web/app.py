@@ -21,6 +21,7 @@ from nicegui import ui
 
 from postcards.backend import MockBackend, SwissIdConsumerBackend
 from postcards.backend.base import AddressSpec, PostcardBackend
+from postcards.config import KeyringError, KeyringStore
 from postcards.image import Orientation
 from postcards.models.message import MAX_MESSAGE_LENGTH
 from postcards.web import service
@@ -65,6 +66,9 @@ def _compose_page() -> None:
     """Render the single compose-and-send page (one draft per client)."""
     draft = PostcardDraft()
     state = _UiState()
+    # Resolve SwissID credentials once (env → keyring → config file); used to
+    # prefill the auth form below. Network-free and never raises.
+    auth = service.resolve_auth()
 
     ui.colors(primary="#c8102e")  # Swiss Post red
     with ui.header().classes("items-center justify-between"):
@@ -189,8 +193,16 @@ def _compose_page() -> None:
                     .props("outlined dense")
                     .classes("w-full")
                 )
+
+                # Auth box — full credential management, shown for SwissID.
                 cred_box = ui.column().classes("w-full gap-2")
                 with cred_box:
+                    account_select = (
+                        ui.select(auth.usernames(), label="Saved account")
+                        .props("outlined dense clearable")
+                        .classes("w-full")
+                    )
+                    account_select.set_visibility(auth.has_accounts())
                     username_input = (
                         ui.input("SwissID e-mail").props("outlined dense").classes("w-full")
                     )
@@ -199,17 +211,89 @@ def _compose_page() -> None:
                         .props("outlined dense type=password")
                         .classes("w-full")
                     )
+                    with ui.row().classes("items-center gap-2"):
+                        ui.button("Load password", on_click=lambda: do_load()).props("flat dense")
+                        ui.button("Save to keyring", on_click=lambda: do_save()).props("flat dense")
+                        ui.button("Check login & quota", on_click=lambda: do_check()).props(
+                            "flat dense"
+                        )
+                    cred_status = ui.label("").classes("text-caption opacity-80")
                     ui.label(
-                        "Live login can require 2FA / fail Swiss Post anomaly checks — "
-                        "see the README. Credentials are used only for this send."
-                    ).classes("text-caption opacity-70")
+                        "Credentials resolve from env → OS keyring → config file. Live login "
+                        "can require 2FA / hit Swiss Post anomaly checks; secrets are never "
+                        "stored by the app except when you click “Save to keyring”."
+                    ).classes("text-caption opacity-60")
                 cred_box.set_visibility(False)
+
+                # Prefill from resolved accounts (env / keyring / config).
+                if auth.has_accounts():
+                    first = auth.accounts[0]
+                    username_input.value = first.username
+                    if first.password:
+                        password_input.value = first.password
+                    account_select.value = first.username
+
+                def _auth_hint() -> str:
+                    kr = (
+                        f"keyring: {auth.keyring_reason or 'available'}"
+                        if auth.keyring_available
+                        else f"keyring unavailable ({auth.keyring_reason or 'no backend'})"
+                    )
+                    src = ""
+                    acct = auth.find(username_input.value)
+                    if acct:
+                        src = f" · {acct.username} loaded from {acct.source}"
+                    return kr + src
 
                 def on_backend(value: str) -> None:
                     state.backend = value
                     cred_box.set_visibility(value == "swissid")
+                    if value == "swissid":
+                        cred_status.set_text(_auth_hint())
 
                 backend_select.on_value_change(lambda e: on_backend(e.value))
+
+                def on_account(username: str) -> None:
+                    acct = auth.find(username or "")
+                    if acct:
+                        username_input.value = acct.username
+                        if acct.password:
+                            password_input.value = acct.password
+                        cred_status.set_text(_auth_hint())
+
+                account_select.on_value_change(lambda e: on_account(e.value or ""))
+
+                def do_load() -> None:
+                    user = username_input.value or ""
+                    acct = auth.find(user)
+                    pw = (
+                        acct.password
+                        if acct and acct.password
+                        else (KeyringStore().get(user) or "")
+                    )
+                    if pw:
+                        password_input.value = pw
+                        ui.notify(f"Loaded password for {user}.", type="positive")
+                    else:
+                        ui.notify(f"No stored password found for {user!r}.", type="warning")
+
+                def do_save() -> None:
+                    try:
+                        msg = service.save_to_keyring(
+                            username_input.value or "", password_input.value or ""
+                        )
+                        ui.notify(msg, type="positive")
+                    except KeyringError as exc:
+                        ui.notify(f"Keyring error: {exc}", type="negative")
+
+                def do_check() -> None:
+                    backend = _build_backend(state.backend)
+                    result = service.check_login(
+                        backend, username_input.value or "", password_input.value or ""
+                    )
+                    ui.notify(
+                        result.detail, type="positive" if result.ok else "negative", timeout=6000
+                    )
 
                 dry_switch = ui.switch("Dry-run (validate only, don't send)", value=True)
 
