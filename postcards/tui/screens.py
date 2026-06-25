@@ -24,7 +24,7 @@ testable without a Textual Pilot harness.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 if TYPE_CHECKING:
     from postcards.tui.app import PostcardsApp
@@ -478,17 +478,17 @@ class ComposeScreen:
             def _notify(self, message: str, *, severity: str = "information") -> None:
                 """Show a transient notification to the user."""
                 # textual.app.App.notify accepts ``severity`` as a
-                # ``Literal["information", "warning", "error"]``;
-                # we keep the parameter stringly-typed at the
-                # boundary so the test suite can call it with
-                # any value without mypy complaining about the
-                # literals the screens happen to use.
+                # ``Literal["information", "warning", "error"]``; we
+                # keep the parameter stringly-typed at the boundary
+                # so the test suite can call it with any value without
+                # the screens pinning the literals. The ``cast`` below
+                # narrows the runtime-fallback back to the literal
+                # union so the call site type-checks against textual's
+                # overloads (including environments where textual is
+                # not installed and the stubs are missing).
                 allowed = ("information", "warning", "error")
-                self.app.notify(
-                    message,
-                    severity=severity if severity in allowed else "information",  # type: ignore[arg-type]
-                    timeout=5,
-                )
+                final = severity if severity in allowed else "information"
+                self.app.notify(message, severity=cast(Any, final), timeout=5)
 
         return _Screen()
 
