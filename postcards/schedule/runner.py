@@ -560,7 +560,8 @@ def _send_via_backend(
     has already been retried to exhaustion.
     """
     _LOGGER.info(
-        "dispatching job %s via backend", job.id,
+        "dispatching job %s via backend",
+        job.id,
     )
     backend = backend_factory()
     username = job.username or ""

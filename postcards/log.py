@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from typing import TextIO
 
 #: Numeric level for the ``TRACE`` verbosity. Lower than
@@ -47,6 +47,14 @@ LOG_LEVEL_TRACE: int = 5
 #: :data:`LOG_LEVEL_TRACE`. ``logging`` uses it when formatting
 #: log records at level 5.
 LOG_LEVEL_TRACE_NAME: str = "TRACE"
+
+#: Register the TRACE level on import so ``logging.getLevelName(5)``
+#: returns ``"TRACE"`` even before :func:`configure` runs. The
+#: vendored shim already adds the same level under the same name;
+#: ``addLevelName`` is idempotent so the second registration
+#: is a no-op.
+logging.addLevelName(LOG_LEVEL_TRACE, LOG_LEVEL_TRACE_NAME)
+
 
 #: Stable mapping from the ``-v`` count the CLI parses to the
 #: log level :func:`configure` will install. ``count=3`` maps
@@ -73,17 +81,6 @@ BRIEF_FORMAT: str = "%(asctime)s %(name)s: %(message)s"
 #: namespace; the user opted into ``-vv`` to debug a network
 #: call, so we let its DEBUG records through at that level.
 _PINNED_LOGGERS: tuple[str, ...] = ("postcard_creator",)
-
-
-def _register_trace_level() -> None:
-    """Register the :data:`LOG_LEVEL_TRACE_NAME` level with :mod:`logging`.
-
-    :func:`logging.addLevelName` is idempotent; calling this on
-    every :func:`configure` invocation is harmless and means
-    importing :mod:`postcards.log` is enough to make the level
-    available everywhere.
-    """
-    logging.addLevelName(LOG_LEVEL_TRACE, LOG_LEVEL_TRACE_NAME)
 
 
 def verbosity_to_level(verbosity: int, *, levels: Iterable[int] = DEFAULT_VERBOSITY_LEVELS) -> int:
@@ -125,7 +122,6 @@ def configure(
         error format (``brief_fmt``). ``None`` keeps the module
         defaults.
     """
-    _register_trace_level()
     handler_stream = stream if stream is not None else sys.stderr
 
     formatter = logging.Formatter(fmt or DEFAULT_FORMAT)
@@ -185,12 +181,3 @@ __all__ = [
     "make_record_capture",
     "verbosity_to_level",
 ]
-
-
-def _smoke(level_resolver: Callable[[int], int]) -> int:
-    """Quick sanity check used by the doctest-style snippets.
-
-    Not exported; lets the test suite import the resolver without
-    pulling pytest.
-    """
-    return level_resolver(2)

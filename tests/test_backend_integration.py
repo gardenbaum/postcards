@@ -26,8 +26,10 @@ No live network is exercised at any point.
 from __future__ import annotations
 
 import io
+import random
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -47,7 +49,12 @@ from postcards.backend import (
     select_backend,
 )
 from postcards.backend.base import PreviewInfo
+from postcards.backend.exceptions import (
+    QuotaExhaustedError,
+    TransientBackendError,
+)
 from postcards.models import Message, Postcard
+from postcards.retry import RetryPolicy
 
 # ---------------------------------------------------------------------------
 # Fixtures + helpers
@@ -501,3 +508,169 @@ def test_pipeline_to_postcard_to_mock_backend_send() -> None:
     assert result.postcard is card
     assert backend.sent[0].postcard is card
     assert backend.sent[0].mock is True
+
+
+# ---------------------------------------------------------------------------
+# M5: failure injection + retry integration
+# ---------------------------------------------------------------------------
+
+
+def test_mock_backend_transient_errors_counter_decrements(
+    valid_postcard: Postcard,
+) -> None:
+    """``transient_errors_remaining`` drives ``N`` transient failures."""
+
+    backend = MockBackend(transient_errors_remaining=2)
+    backend.login("alice", "pw")
+
+    # The first two calls raise; the third succeeds.
+    with pytest.raises(TransientBackendError):
+        backend.send(valid_postcard)
+    with pytest.raises(TransientBackendError):
+        backend.send(valid_postcard)
+    result = backend.send(valid_postcard)
+    assert isinstance(result, SendResult)
+    # The successful call was the only one recorded.
+    assert len(backend.sent) == 1
+
+
+def test_mock_backend_send_exception_raises_once_and_clears(
+    valid_postcard: Postcard,
+) -> None:
+    """``send_exception`` is raised on the next send and then cleared."""
+
+    backend = MockBackend()
+    backend.login("alice", "pw")
+    backend.send_exception = QuotaExhaustedError("test injection")
+    with pytest.raises(QuotaExhaustedError, match="test injection"):
+        backend.send(valid_postcard)
+    # Second send succeeds — the exception is single-use so tests
+    # can drive a specific failure mode without permanently
+    # breaking the mock.
+    result = backend.send(valid_postcard)
+    assert isinstance(result, SendResult)
+
+
+def test_swissid_send_recovers_after_transient_failures(
+    valid_postcard: Postcard,
+) -> None:
+    """The SwissID backend's retry helper recovers from transient blips.
+
+    We monkey-patch the shim's ``send_free_card`` to fail twice
+    with a transient error and then succeed. The retry helper
+    sleeps between attempts via a recording stub so the test
+    asserts on the backoff shape.
+    """
+    import unittest.mock as _umock
+
+    backend = SwissIdConsumerBackend(
+        retry_policy=RetryPolicy(
+            attempts=3,
+            base_delay=0.001,
+            multiplier=2.0,
+            max_delay=0.01,
+            sleeper=lambda seconds: None,
+            rng=random.Random(0),
+        )
+    )
+
+    calls = {"n": 0}
+
+    def flaky_send(self: Any, postcard: Any, mock_send: bool, **_kwargs: Any) -> None:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise TransientBackendError(f"flap {calls['n']}")
+        return None
+
+    def fake_login(self: Token, username: str | None, password: str | None) -> bool:
+        self.token = "<mocked>"
+        return True
+
+    with (
+        _umock.patch.object(Token, "has_valid_credentials", fake_login),
+        _umock.patch.object(PostcardCreatorBase, "send_free_card", flaky_send),
+    ):
+        backend.login("alice", "pw")
+        result = backend.send(valid_postcard)
+
+    assert isinstance(result, SendResult)
+    assert calls["n"] == 3
+
+
+def test_swissid_send_does_not_retry_on_not_implemented(
+    valid_postcard: Postcard,
+) -> None:
+    """The shim's ``NotImplementedError`` is non-retryable.
+
+    A test that forgot to monkey-patch ``send_free_card`` would
+    otherwise retry four times and waste a lot of time before
+    failing loudly. The classifier must treat ``NotImplementedError``
+    as permanent.
+    """
+    import unittest.mock as _umock
+
+    backend = SwissIdConsumerBackend(
+        retry_policy=RetryPolicy(
+            attempts=4,
+            base_delay=0.001,
+            sleeper=lambda seconds: None,
+            rng=random.Random(0),
+        )
+    )
+
+    calls = {"n": 0}
+
+    def always_not_implemented(self: Any, postcard: Any, mock_send: bool, **_kwargs: Any) -> None:
+        calls["n"] += 1
+        raise NotImplementedError("shim stub")
+
+    def fake_login(self: Token, username: str | None, password: str | None) -> bool:
+        self.token = "<mocked>"
+        return True
+
+    with (
+        _umock.patch.object(Token, "has_valid_credentials", fake_login),
+        _umock.patch.object(PostcardCreatorBase, "send_free_card", always_not_implemented),
+    ):
+        backend.login("alice", "pw")
+        with pytest.raises(NotImplementedError, match="shim stub"):
+            backend.send(valid_postcard)
+
+    # Exactly one call — the retry helper bailed out immediately.
+    assert calls["n"] == 1
+
+
+def test_swissid_quota_recovers_after_transient_failures() -> None:
+    """``quota()`` also retries transient errors via the same helper."""
+    import unittest.mock as _umock
+
+    backend = SwissIdConsumerBackend(
+        retry_policy=RetryPolicy(
+            attempts=3,
+            base_delay=0.001,
+            sleeper=lambda seconds: None,
+            rng=random.Random(0),
+        )
+    )
+
+    calls = {"n": 0}
+
+    def flaky_has_free(self: Any) -> bool:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise TransientBackendError("flap")
+        return True
+
+    def fake_login(self: Token, username: str | None, password: str | None) -> bool:
+        self.token = "<mocked>"
+        return True
+
+    with (
+        _umock.patch.object(Token, "has_valid_credentials", fake_login),
+        _umock.patch.object(PostcardCreatorBase, "has_free_postcard", flaky_has_free),
+    ):
+        backend.login("alice", "pw")
+        quota = backend.quota()
+
+    assert quota.available is True
+    assert calls["n"] == 2

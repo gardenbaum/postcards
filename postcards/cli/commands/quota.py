@@ -100,8 +100,7 @@ def _wait_for_quota(
             return info
         if time.monotonic() >= deadline:
             raise QuotaExhaustedError(
-                "quota still exhausted after waiting "
-                f"{max_wait:.0f}s",
+                f"quota still exhausted after waiting {max_wait:.0f}s",
                 next_available_at=info.next_available_at,
                 retention_days=info.retention_days,
             )
@@ -145,7 +144,7 @@ def quota_cmd(
         30.0,
         "--poll",
         help="Seconds between quota checks while --wait is set. Default: 30.",
-        min=1.0,
+        min=0.1,
     ),
     no_fail: bool = typer.Option(
         False,

@@ -439,6 +439,89 @@ class TestErrors:
 
 
 # ---------------------------------------------------------------------------
+# M5: quota-exhausted exception is the unified backend-level type
+# ---------------------------------------------------------------------------
+
+
+class TestQuotaExceptionHierarchy:
+    """M5 made the runner's :class:`QuotaExhaustedError` subclass the
+    backend-level one. A single ``except`` at the CLI layer catches
+    both — this test pins that."""
+
+    def test_runner_quota_exhausted_is_a_backend_quota_exhausted(
+        self, address_book: AddressBook
+    ) -> None:
+        from postcards.backend.exceptions import QuotaExhaustedError as BackendQuotaError
+
+        assert issubclass(QuotaExhaustedError, BackendQuotaError)
+
+
+# ---------------------------------------------------------------------------
+# M5: structured logging in the dispatch path
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredLogging:
+    """The runner logs at every dispatch step so ``-vv`` shows exactly
+    where a job got stuck. The tests pin that the right log lines
+    are emitted, and that quota exhaustion produces a WARN line
+    that surfaces the next-available timestamp."""
+
+    def test_successful_dispatch_logs_info(
+        self,
+        address_book: AddressBook,
+        backend: MockBackend,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+
+        clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
+        job = _job()
+        book = ScheduleBook(jobs=(job,))
+
+        with caplog.at_level(logging.DEBUG, logger="postcards.schedule.runner"):
+            run_due_jobs(
+                book,
+                clock=clock,
+                backend_factory=_factory(backend),
+                address_book=address_book,
+            )
+
+        # The dispatch path emits "dispatching" + "sent" at INFO.
+        info_lines = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert any("dispatching" in msg for msg in info_lines)
+        assert any("sent" in msg for msg in info_lines)
+
+    def test_quota_exhausted_logs_warning_with_next_available(
+        self,
+        address_book: AddressBook,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        import logging
+        from datetime import UTC, datetime
+
+        clock = FakeClock(datetime(2026, 6, 24, 9, 30, tzinfo=UTC))
+        when = datetime(2026, 6, 25, 0, 0, tzinfo=UTC)
+        backend = MockBackend(
+            quota_info=QuotaInfo(available=False, next_available_at=when, retention_days=1)
+        )
+        job = _job()
+        book = ScheduleBook(jobs=(job,))
+
+        with caplog.at_level(logging.WARNING, logger="postcards.schedule.runner"):
+            run_due_jobs(
+                book,
+                clock=clock,
+                backend_factory=_factory(backend),
+                address_book=address_book,
+            )
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("quota exhausted" in r.getMessage() for r in warnings)
+        assert any(when.isoformat() in r.getMessage() for r in warnings)
+
+
+# ---------------------------------------------------------------------------
 # Dry-run
 # ---------------------------------------------------------------------------
 

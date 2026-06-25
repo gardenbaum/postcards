@@ -827,6 +827,141 @@ def test_quota_requires_username(
     assert "username" in result.output.lower()
 
 
+def test_quota_exhausted_shows_next_available(
+    runner: CliRunner,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``quota`` shows when the next free card opens on exhaustion.
+
+    The mock backend is configured with a closed quota pointing
+    at a specific timestamp; the CLI must surface the timestamp
+    verbatim and hint at ``--wait``.
+    """
+    from datetime import UTC, datetime
+
+    from postcards.backend import MockBackend
+    from postcards.backend.base import QuotaInfo
+    from postcards.cli.commands import quota as quota_module
+
+    when = datetime(2026, 6, 26, 0, 0, tzinfo=UTC)
+    sentinel = MockBackend(
+        quota_info=QuotaInfo(available=False, next_available_at=when, retention_days=1)
+    )
+
+    def fake_select(
+        env: dict[str, str] | None = None,
+        config: dict[str, object] | None = None,
+        *,
+        default: str = "swissid",
+    ) -> MockBackend:
+        return sentinel
+
+    monkeypatch.setattr(quota_module, "select_backend", fake_select)
+    monkeypatch.setenv("POSTCARDS_USERNAME", "alice")
+    monkeypatch.setenv("POSTCARDS_PASSWORD", "alice-pw")
+
+    result = _invoke("quota", "--backend", "mock")
+    # Default: exit non-zero so scripts see the exhaustion.
+    assert result.exit_code == 1, result.output
+    assert "no free postcard" in result.output
+    assert when.isoformat() in result.output
+    assert "--wait" in result.output
+
+
+def test_quota_exhausted_with_no_fail_exits_zero(
+    runner: CliRunner,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``quota --no-fail`` exits 0 even on exhaustion.
+
+    Shell scripts use this flag to gate on quota availability
+    without ``set -e`` blowing up.
+    """
+    from postcards.backend import MockBackend
+    from postcards.backend.base import QuotaInfo
+    from postcards.cli.commands import quota as quota_module
+
+    sentinel = MockBackend(
+        quota_info=QuotaInfo(available=False, next_available_at=None, retention_days=1)
+    )
+
+    def fake_select(
+        env: dict[str, str] | None = None,
+        config: dict[str, object] | None = None,
+        *,
+        default: str = "swissid",
+    ) -> MockBackend:
+        return sentinel
+
+    monkeypatch.setattr(quota_module, "select_backend", fake_select)
+    monkeypatch.setenv("POSTCARDS_USERNAME", "alice")
+    monkeypatch.setenv("POSTCARDS_PASSWORD", "alice-pw")
+
+    result = _invoke("quota", "--backend", "mock", "--no-fail")
+    assert result.exit_code == 0, result.output
+    assert "no free postcard" in result.output
+
+
+def test_quota_wait_polls_until_open(
+    runner: CliRunner,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``quota --wait`` keeps polling until the quota opens.
+
+    The mock backend is configured with a quota that flips to
+    available after one ``quota()`` call. The CLI must keep
+    polling (and surface the polling progress on stderr) and
+    ultimately exit 0 with the success message.
+    """
+    from postcards.backend import MockBackend
+    from postcards.backend.base import QuotaInfo
+    from postcards.cli.commands import quota as quota_module
+
+    counter = {"n": 0}
+
+    class _FlippingMock(MockBackend):
+        def quota(self) -> QuotaInfo:
+            counter["n"] += 1
+            if counter["n"] < 2:
+                return QuotaInfo(available=False, next_available_at=None, retention_days=1)
+            return QuotaInfo(available=True, retention_days=1)
+
+    sentinel = _FlippingMock()
+
+    def fake_select(
+        env: dict[str, str] | None = None,
+        config: dict[str, object] | None = None,
+        *,
+        default: str = "swissid",
+    ) -> MockBackend:
+        return sentinel
+
+    monkeypatch.setattr(quota_module, "select_backend", fake_select)
+    monkeypatch.setenv("POSTCARDS_USERNAME", "alice")
+    monkeypatch.setenv("POSTCARDS_PASSWORD", "alice-pw")
+
+    # ``--poll 0.1`` keeps the test fast; ``--max-wait 5`` is
+    # generous so a slow CI box still completes within the cap.
+    result = _invoke(
+        "quota",
+        "--backend",
+        "mock",
+        "--wait",
+        "--poll",
+        "0.1",
+        "--max-wait",
+        "5",
+    )
+    assert result.exit_code == 0, result.output
+    assert "free postcard available now" in result.output
+    # The CLI must have polled at least twice (initial exhausted,
+    # then the second call returns available).
+    assert counter["n"] >= 2
+
+
 # ---------------------------------------------------------------------------
 # credentials
 # ---------------------------------------------------------------------------
