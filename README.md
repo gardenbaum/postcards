@@ -48,6 +48,19 @@ docker build -t postcards:dev .
 docker run --rm -it postcards:dev --help
 ```
 
+For the optional TUI, install the `gui` extra alongside the
+base install:
+
+```sh
+pipx install '.[gui]'         # adds the textual-based TUI
+# or, in a venv:
+pip install -e '.[dev,gui]'   # dev + TUI
+```
+
+Without the extra, `postcards tui` exits with a clear
+"install `postcards[gui]`" message. See
+[`docs/TUI.md`](docs/TUI.md) for the user guide.
+
 See [`docs/INSTALL.md`](docs/INSTALL.md) for per-OS install paths,
 [`docs/DOCKER.md`](docs/DOCKER.md) for the container recipe.
 
@@ -101,11 +114,36 @@ shape.
 | `postcards schedule` | Add / list / run / remove recurring postcard jobs |
 | `postcards keyring` | Manage SwissID credentials in the OS keyring (`set`, `delete`, `status`) |
 | `postcards config` | Inspect / patch the merged config layer |
+| `postcards tui` | Launch the local Textual-based TUI (opt-in via `postcards[gui]`) |
 
 The legacy plugin entry points (`postcards-folder`, `postcards-yaml`,
 `postcards-pexels`, `postcards-chuck-norris`) are also installed for
 backward compatibility; new code should use the unified
 `postcards send --plugin <name>` interface.
+
+## Local TUI
+
+`postcards tui` launches a small [Textual]-based terminal UI
+for composing, previewing, and sending a postcard without
+leaving the terminal. The TUI is **opt-in**: install the
+`gui` extra first (`pip install 'postcards[gui]'` or
+`pipx install '.[gui]'`), then run:
+
+[Textual]: https://textual.textualize.io/
+
+```sh
+postcards tui
+```
+
+The TUI defaults to **dry-run** mode (no SwissID login, no
+quota consumption, no network) and asks for an explicit
+`YES` confirmation before sending for real. The form is a
+thin layer on top of the same pipeline the CLI uses —
+mutations to the address book and templates still happen
+via `postcards addresses add ...` /
+`postcards templates add ...`. See
+[`docs/TUI.md`](docs/TUI.md) for the full walkthrough,
+keyboard reference, and safety model.
 
 ## Configuration
 
@@ -359,6 +397,12 @@ slim `python:3.13-slim` runtime. See
 SwissID auth has anomaly detection + 2FA, so it cannot run in CI.
 The mock is the single source of truth for the backend's contract;
 when the upstream drifts, we update the mock, not the tests.
+
+**Why a TUI and not a web UI?** The TUI runs in the same terminal
+the rest of the tool runs in, needs no browser or second port,
+works over SSH and in containers, and is fully testable via
+`textual.pilot.Pilot`. The `gui` extra keeps `textual` off the
+default install path. See [`docs/TUI.md`](docs/TUI.md).
 
 ## Development
 

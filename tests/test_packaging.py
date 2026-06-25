@@ -223,3 +223,52 @@ def test_no_pyproject_drift_field_removed() -> None:
     project = _read_pyproject()["project"]
     assert isinstance(project, dict)
     assert "version" not in project
+
+
+def test_gui_extra_declares_textual() -> None:
+    """``postcards[gui]`` extra is wired in ``pyproject.toml``.
+
+    The TUI is opt-in: the ``gui`` extra pulls in
+    ``textual`` so users who only use the CLI do not have
+    to install the TUI's deps. This test pins the contract
+    so a future refactor that splits the extras cannot
+    silently drop ``textual``.
+    """
+    project = _read_pyproject()["project"]
+    optional = project.get("optional-dependencies", {})
+    assert isinstance(optional, dict)
+    assert "gui" in optional, "missing [gui] extra in optional-dependencies"
+    gui_deps = optional["gui"]
+    assert any(dep.startswith("textual") for dep in gui_deps), (
+        f"[gui] extra must include textual; got {gui_deps!r}"
+    )
+
+
+def test_tui_package_wires_to_textual() -> None:
+    """The ``postcards.tui`` package imports cleanly.
+
+    ``postcards.tui`` is the only consumer of the ``gui``
+    extra. If the package is renamed or moved, the test
+    flags the breakage before the user hits it at runtime.
+    The package's lazy import of :mod:`textual` (inside
+    :func:`postcards.tui.app.run_tui`) means this import
+    succeeds without the extra installed.
+    """
+    from postcards import tui
+
+    assert hasattr(tui, "PostcardsApp")
+    assert hasattr(tui, "run_tui")
+
+
+def test_tui_subcommand_is_registered_in_app() -> None:
+    """``postcards tui`` is registered as a Typer subcommand.
+
+    Mirrors the runtime contract documented in
+    ``docs/TUI.md`` and the README: typing ``postcards tui``
+    on the command line should open the TUI (or print a
+    clear install-prompt if the ``gui`` extra is missing).
+    """
+    from postcards.cli.app import app as typer_app
+
+    names = {c.name for c in typer_app.registered_commands}
+    assert "tui" in names

@@ -15,6 +15,71 @@ release section verbatim, and the version bump in
 
 ### Added
 
+- **M6 — optional local TUI.**
+  The `postcards tui` subcommand launches a small Textual-
+  based terminal UI for composing, previewing, and (with an
+  explicit confirmation step) sending a postcard. The TUI is
+  opt-in via the new `gui` extra: `pip install 'postcards[gui]'`.
+  Without the extra, `postcards tui` exits with a clear
+  "install `postcards[gui]`" message — the core CLI keeps
+  working. See [`docs/TUI.md`](docs/TUI.md) for the user
+  guide.
+
+  - **`postcards[gui]` extra.** `pyproject.toml` adds an
+    optional `gui = ["textual>=0.85"]` dep set. `textual`
+    pulls in `rich` and a small set of well-behaved
+    transitive deps. No new runtime dep is forced on users
+    who never run the TUI.
+  - **`postcards tui` command.** New Typer subcommand in
+    [`postcards/cli/commands/tui.py`](postcards/cli/commands/tui.py).
+    Flags: `--config / -c` (config file), `--accounts-file /
+    -a`, `--send` (disable the default dry-run). Imports
+    :mod:`textual` lazily so a missing dep surfaces as an
+    actionable `pip install` error.
+  - **TUI package at [`postcards/tui/`](postcards/tui/).**
+    Four modules: `state.py` (the `ComposeForm` value
+    object), `app.py` (`PostcardsApp` — the bridge between
+    the form and the existing CLI pipeline), `screens.py`
+    (the six screens: MainMenu, Compose, AddressBook,
+    TemplateBook, Preview, SendConfirm, Help). Each screen
+    is a thin wrapper around a dynamic `textual.screen.Screen`
+    subclass so the TUI tests can drive them through
+    `textual.pilot.Pilot` without a real terminal.
+  - **Reuses the existing pipeline.** The TUI does not
+    duplicate any logic: `PostcardsApp.build_in_memory_config`
+    builds the `recipient` / `sender` dicts the legacy
+    `do_command_send` flow expects (mirroring
+    `_address_to_legacy_dict` from `postcards/cli/commands/send.py`),
+    `PostcardsApp.build_send_namespace` builds the same
+    `argparse.Namespace` shape `do_command_send` accepts, and
+    `PostcardsApp.render_preview` delegates to
+    `postcards.render.render_postcard`. The TUI never calls
+    the network directly.
+  - **Dry-run by default.** The "Send real" button stays
+    disabled until the user un-checks the dry-run box AND
+    types `YES` (uppercase) at the confirm modal. The
+    safety model mirrors the CLI's `--dry-run` flag while
+    keeping the user in the loop.
+  - **Read-only address book + template browser.** The TUI
+    shows the user's address book and templates but never
+    writes to them — mutations happen via the existing
+    `postcards addresses add ...` and
+    `postcards templates add ...` commands, where the
+    on-disk format and validation live in one place.
+  - **Tests** (`tests/test_tui.py`, 43 tests). State tests
+    for `ComposeForm`; app-glue tests for
+    `PostcardsApp.{build_in_memory_config, build_send_namespace,
+    render_preview, _render_template_message}`; Pilot-driven
+    screen tests for every screen (mount + button + input
+    events); end-to-end Compose → Send-dry-run flow with the
+    same `Token.has_valid_credentials` /
+    `PostcardCreatorBase.has_free_postcard` /
+    `PostcardCreatorBase.send_free_card` triple the existing
+    CLI integration tests use.
+  - **User guide** at [`docs/TUI.md`](docs/TUI.md): why a
+    TUI (vs web UI), install, screen-by-screen walkthrough,
+    safety model, keyboard reference, troubleshooting.
+
 - **M6 — packaging, distribution, docs overhaul.**
   M6 closes the distribution surface: the package is publish-ready
   for PyPI (`pipx install .` works end-to-end), the README is a

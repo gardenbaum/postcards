@@ -116,6 +116,33 @@ the integration tests) round-trips a fake send. A passing
 `postcards doctor` is the green light to send a real card with
 `postcards send`.
 
+## Optional: the local TUI (`postcards[gui]`)
+
+The base install ships the CLI only. The `postcards tui`
+command (a small [Textual]-based terminal UI for composing,
+previewing, and sending a postcard) lives behind the `gui`
+extra so its deps (`textual` + `rich` + a small transitive
+closure) stay off the default install path.
+
+[Textual]: https://textual.textualize.io/
+
+```sh
+# pipx
+pipx install 'postcards[gui]'
+pipx inject postcards 'textual>=0.85'   # if you already have postcards installed
+
+# pip (in a venv)
+pip install 'postcards[gui]'
+
+# editable + dev + GUI (typical contributor setup)
+pip install -e '.[dev,gui]'
+```
+
+Without the extra, `postcards tui` exits with a clear
+"install `postcards[gui]`" message — the core CLI keeps
+working. See [`docs/TUI.md`](docs/TUI.md) for the full
+walkthrough.
+
 ## Troubleshooting
 
 ### `pipx install .` fails with `ERROR: File "..." was not found`

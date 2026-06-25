@@ -62,6 +62,20 @@ docker run --rm -it postcards:dev status
 docker run --rm -it postcards:dev quota
 ```
 
+The base image ships the core CLI only — it does NOT bundle
+the optional `postcards[gui]` extra. The TUI is text-only
+and runs over a TTY; if you want `postcards tui` inside the
+container, build a derived image:
+
+```dockerfile
+FROM postcards:dev
+USER root
+RUN pip install --no-cache-dir 'postcards[gui]==3.0.0'
+USER postcards
+```
+
+…and run it with a TTY: `docker run --rm -it your-image tui`.
+
 ## Mounting a config file
 
 The CLI reads the config from `--config <path>` (or

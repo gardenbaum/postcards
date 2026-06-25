@@ -114,6 +114,17 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
 ]
+# M6: optional local TUI. ``textual`` is a moderate dep (transitively
+# pulls in ``rich``, ``markdown-it-py``, ``linkify-it-py`` etc.), so
+# users who never run ``postcards tui`` should not have to install it.
+# Install with ``pip install postcards[gui]`` to opt in. The TUI
+# itself is a thin layer on top of the existing pipeline; it does
+# not duplicate the CLI and never calls the network directly (it
+# delegates to ``postcards.cli`` and the address-book / template
+# storage modules).
+gui = [
+    "textual>=0.85",
+]
 
 [project.urls]
 # M6: the canonical development repository is the active fork
