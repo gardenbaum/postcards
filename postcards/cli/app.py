@@ -39,14 +39,16 @@ The command modules are split by domain:
 
 from __future__ import annotations
 
-import logging
 import sys
 
 import typer
 
 from postcards import __version__
-
-LOGGING_TRACE_LVL = 5
+from postcards.log import (
+    DEFAULT_VERBOSITY_LEVELS,
+    LOG_LEVEL_TRACE,
+)
+from postcards.log import configure as configure_logging
 
 #: The top-level :class:`typer.Typer` instance.
 #:
@@ -80,21 +82,18 @@ def _verbose_callback(value: int) -> int:
     Typer invokes option callbacks before the command body runs.
     By the time the body executes, the root logger is already at
     the right level, so business logic in the commands does not
-    need to touch :mod:`logging` directly.
+    need to touch :mod:`logging` directly. The mapping from
+    ``-v`` count to log level lives in
+    :data:`postcards.log.DEFAULT_VERBOSITY_LEVELS`.
     """
-    target_level = int(max(2.0 - value, 0.5) * 10)
-    target_level = max(LOGGING_TRACE_LVL, target_level)
-    logging.basicConfig(
-        stream=sys.stderr,
-        level=target_level,
-        format="%(name)s (%(levelname)s): %(message)s",
-        force=True,
-    )
-    api_logger = logging.getLogger("postcard_creator")
-    if target_level <= logging.DEBUG:
-        api_logger.setLevel(logging.DEBUG)
-    if target_level <= LOGGING_TRACE_LVL:
-        api_logger.setLevel(LOGGING_TRACE_LVL)
+    from postcards.log import verbosity_to_level
+
+    target_level = verbosity_to_level(value, levels=DEFAULT_VERBOSITY_LEVELS)
+    # Always log to stderr so an interactive user's stdout
+    # remains a clean record of the cards they sent.
+    configure_logging(target_level, stream=sys.stderr)
+    _ = LOG_LEVEL_TRACE  # keep the symbol import honest; level itself
+    # is propagated via the root logger by ``configure_logging``.
     return value
 
 

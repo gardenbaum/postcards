@@ -918,22 +918,35 @@ def test_verbose_flag_configures_logging(
     clean_env: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``-vv`` configures the root logger to DEBUG level."""
+    """``-vv`` configures the root logger to DEBUG level.
+
+    M5: the callback delegates to :func:`postcards.log.configure`
+    rather than :func:`logging.basicConfig` directly. The test
+    patches :func:`configure` on the module that holds the
+    :func:`_verbose_callback` so the assertion still verifies
+    that ``-vv`` reaches the level-mapping logic.
+    """
     import logging
+    import sys
+
+    from postcards.cli import app as cli_module  # noqa: F401 - keeps import alive
 
     seen: list[int] = []
 
-    def capture(level: int = logging.NOTSET, **_kw: object) -> None:
-        if level != logging.NOTSET:
-            seen.append(level)
+    def capture(level: int, **_kw: object) -> None:
+        seen.append(level)
 
-    monkeypatch.setattr(logging, "basicConfig", capture)
+    # ``from postcards.cli import app`` returns the Typer
+    # instance, not the module; ``sys.modules`` is the canonical
+    # way to grab the module itself.
+    app_module = sys.modules["postcards.cli.app"]
+    monkeypatch.setattr(app_module, "configure_logging", capture)
     result = _invoke("-vv", "status")
     assert result.exit_code == 0, result.output
-    # ``-vv`` translates to target level 0 (TRACE = 5). The
-    # basicConfig call must have set a level at or below DEBUG
-    # (10) — that is the contract that makes the postcards and
+    # ``-vv`` translates to DEBUG (10). The configure call must
+    # have set a level at or below DEBUG so the postcards and
     # postcard_creator loggers surface DEBUG-level messages.
+    assert seen, "expected configure_logging to be called at least once"
     assert any(level <= logging.DEBUG for level in seen)
 
 
