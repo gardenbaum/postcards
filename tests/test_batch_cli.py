@@ -551,7 +551,14 @@ class TestBatchSourceValidation:
 
 
 class TestBatchHelp:
-    def test_help_lists_all_sources(self) -> None:
+    def test_help_lists_all_sources(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Rich help rendering wraps option names when the terminal width is
+        # too narrow, which can hide ``--to-many`` behind a line break on
+        # some Rich versions / non-TTY environments (notably the GitHub
+        # Actions runner with rich>=15). Pin a wide width so the rendered
+        # help reliably contains every option name on its own line.
+        monkeypatch.setenv("COLUMNS", "200")
+
         result = _invoke("batch", "--help")
         assert result.exit_code == 0
         assert "--to-many" in result.output
