@@ -5,9 +5,79 @@ is loosely based on [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to [Semantic Versioning](https://semver.org/) as far
 as is practical for a wrapper around an unofficial upstream API.
 
+Releases follow the calendar-versioning rule described in
+[`docs/RELEASE.md`](docs/RELEASE.md). Cutting a release is a single
+`git tag` step; the `[Unreleased]` block below becomes the new
+release section verbatim, and the version bump in
+`postcards/__init__.py` is the only required code change.
+
 ## [Unreleased]
 
 ### Added
+
+- **M6 — packaging, distribution, docs overhaul.**
+  M6 closes the distribution surface: the package is publish-ready
+  for PyPI (`pipx install .` works end-to-end), the README is a
+  complete user guide, and a Dockerfile ships the CLI in a slim
+  container. See [`docs/INSTALL.md`](docs/INSTALL.md),
+  [`docs/DOCKER.md`](docs/DOCKER.md), and
+  [`docs/RELEASE.md`](docs/RELEASE.md) for the new surfaces.
+
+  - **Version 3.0.0.** Bumped from 2.2. The 3.x series reflects the
+    full modernization that landed across M0–M5 (Typer CLI,
+    vendored postcard-creator shim, plugin registry, address book,
+    batch, schedule, retries / quota / keyring / doctor). The
+    canonical version lives in `postcards/__init__.py` as
+    `__version__`; hatchling reads it via `[tool.hatch.version]`
+    so the wheel metadata and the runtime `__version__` cannot
+    drift apart.
+
+  - **`pyproject.toml` metadata.** New classifiers (Development
+    Status 4-Beta, Intended Audience Developers, CPython, OS
+    Independent + Linux/macOS/Windows, Topic Utilities,
+    Environment Console); project URLs for Documentation, Issues,
+    Changelog (pointing at `gardenbaum/postcards`); the original
+    `abertschi/postcards` is preserved as `Upstream`. README is
+    declared as the long description (`text/markdown`).
+
+  - **`pipx install .` is the recommended install path.** Verified
+    on Python 3.13: installs cleanly into an isolated venv and
+    exposes all five console scripts (`postcards`,
+    `postcards-folder`, `postcards-yaml`, `postcards-pexels`,
+    `postcards-chuck-norris`). `pip install .` from a checkout
+    also works.
+
+  - **Docker image.** New `Dockerfile` at the repo root builds a
+    slim `python:3.13-slim` image that ships the CLI. The default
+    `CMD` is `["postcards", "--help"]`; override with
+    `docker run --rm -it postcards:<tag> send ...` or mount a
+    config file via `-v $PWD/config.json:/home/postcards/config.json:ro`.
+    See [`docs/DOCKER.md`](docs/DOCKER.md) for the full recipe,
+    including running `postcards doctor` in a container to
+    diagnose a host config without installing the package.
+
+  - **Docs.** Full README overhaul (`README.md`) covering
+    install, SwissID setup, send / preview / quota, plugins
+    (folder, yaml, pexels, unsplash, url, local, chuck_norris),
+    batch, schedule, keyring, troubleshooting, FAQ. New docs:
+    [`docs/INSTALL.md`](docs/INSTALL.md) (per-OS install paths
+    and `pipx` recipe), [`docs/DOCKER.md`](docs/DOCKER.md)
+    (image build, run, and mount patterns),
+    [`docs/RELEASE.md`](docs/RELEASE.md) (PyPI publish workflow
+    with `twine` + trusted publishing, GitHub release checklist,
+    and a per-milestone retrospective template). The legacy
+    `--help` excerpt in the README is replaced by a current
+    Typer-rendered command list.
+
+  - **Tests for the packaging surface.**
+    `tests/test_packaging.py` covers wheel metadata (version,
+    classifiers, URLs, requires-python, entry-point group),
+    `pip`-style `install_requires` resolution, and the
+    `postcards.plugins` entry-point group enumerates every
+    in-tree plugin. `tests/test_dockerfile.py` parses the
+    `Dockerfile` and asserts the base image, the install layer,
+    and the default CMD without requiring Docker to be
+    installed locally.
 
 - **M5 — retries, quota awareness, structured logging.**
   The CLI now handles flaky networks, the daily
