@@ -4,23 +4,52 @@ build-backend = "hatchling.build"
 
 [project]
 name = "postcards"
-version = "2.2"
-description = "A CLI for the Swiss Postcard Creator"
+# M6: the canonical version lives in ``postcards/__init__.py`` as
+# ``__version__``; hatchling reads it via ``[tool.hatch.version]``
+# below so the package metadata and the runtime ``__version__``
+# cannot drift apart.
+dynamic = ["version"]
+description = "Unofficial CLI for the Swiss Postcard Creator"
 readme = "README.md"
+readme-content-type = "text/markdown"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
     { name = "Andrin Bertschi" },
 ]
-keywords = ["postcard", "swiss"]
+maintainers = [
+    { name = "Andrin Bertschi" },
+]
+keywords = [
+    "postcard",
+    "swiss",
+    "post",
+    "cli",
+    "swissid",
+    "postcard-creator",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    # Project maturity
+    "Development Status :: 4 - Beta",
+    # Audience
     "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    # License
     "License :: OSI Approved :: MIT License",
+    # Python versions (the constitution §3 mandates 3.12 + 3.13 in CI)
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    # OS (the CLI runs anywhere CPython does; keyring uses native backends)
+    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    # Topic
     "Topic :: Communications",
+    "Topic :: Utilities",
+    "Environment :: Console",
 ]
 requires-python = ">=3.12"
 # M1: dependency modernization.
@@ -87,8 +116,16 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "http://github.com/abertschi/postcards"
-Repository = "http://github.com/abertschi/postcards"
+# M6: the canonical development repository is the active fork
+# (``gardenbaum/postcards``). The original upstream is preserved as
+# ``Upstream`` so the original author is still discoverable from the
+# PyPI page.
+Homepage = "https://github.com/gardenbaum/postcards"
+Repository = "https://github.com/gardenbaum/postcards"
+Documentation = "https://github.com/gardenbaum/postcards#readme"
+Issues = "https://github.com/gardenbaum/postcards/issues"
+Changelog = "https://github.com/gardenbaum/postcards/blob/master/CHANGELOG.md"
+Upstream = "https://github.com/abertschi/postcards"
 
 [project.entry-points."postcards.plugins"]
 # M3: in-tree plugins are registered with the package-wide
@@ -126,6 +163,13 @@ postcards-chuck-norris = "postcards.plugin_chuck_norris.postcards_chuck_norris:m
 # ---------------------------------------------------------------------------
 # Build backend (hatchling) configuration
 # ---------------------------------------------------------------------------
+[tool.hatch.version]
+# Read the version from ``postcards/__init__.py`` (``__version__``).
+# This keeps the runtime ``__version__`` and the package metadata in
+# sync without duplicating the string in two places. Bumping the
+# version is a single-file edit: ``postcards/__init__.py``.
+path = "postcards/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = [
     "postcards",
