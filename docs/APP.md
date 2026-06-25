@@ -43,8 +43,29 @@ The page is a form on the left, a live preview on the right.
   preview renders the message as plain text.
 - **Recipient** / **Sender** — name, street, ZIP, place (required) and an
   optional country.
-- **Send** — pick the backend, enter SwissID credentials if live, toggle
-  dry-run, and send.
+- **Send** — pick the backend; for SwissID, manage credentials (see
+  below), toggle dry-run, and send.
+
+### Credentials & login (SwissID)
+
+When you select the **SwissID** backend, the app surfaces the full
+credential machinery so you never have to drop to the CLI:
+
+- **Auto-resolve** — on load the app resolves accounts in the
+  constitution's order (env vars → OS keyring → config file) and
+  prefills the e-mail (and password, if found), showing where it came
+  from. A **Saved account** dropdown appears when more than one is
+  configured.
+- **Load password** — fetch the stored password for the entered e-mail
+  from the keyring / config into the (masked) field.
+- **Save to keyring** — store the entered password in the OS keyring so
+  future sessions resolve it automatically.
+- **Check login & quota** — perform a real (or mock) login and report
+  whether a card is available today (the 1/day free tier) — without
+  sending anything.
+
+The app only ever writes a secret when you click **Save to keyring**;
+nothing is logged or committed.
 
 **Preview (right):** the **Front** (A6 landscape) and **Back** redraw on
 every change.

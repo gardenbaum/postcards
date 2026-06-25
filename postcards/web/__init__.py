@@ -20,19 +20,29 @@ The ``postcards app`` CLI command launches the UI.
 from __future__ import annotations
 
 from postcards.web.service import (
+    AuthState,
+    LoginCheck,
     PostcardDraft,
     SendOutcome,
     build_postcard,
+    check_login,
     process_image,
     render_preview,
+    resolve_auth,
+    save_to_keyring,
     send_draft,
 )
 
 __all__ = [
+    "AuthState",
+    "LoginCheck",
     "PostcardDraft",
     "SendOutcome",
     "build_postcard",
+    "check_login",
     "process_image",
     "render_preview",
+    "resolve_auth",
+    "save_to_keyring",
     "send_draft",
 ]

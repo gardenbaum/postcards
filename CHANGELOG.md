@@ -38,6 +38,12 @@ front-end. A postcard is a visual object, so the headline feature is
   - **`postcards[app]` extra** (`nicegui`) and the renderer now draws
     WYSIWYG guides (3 mm bleed, safe area, stamp box, address zone) and
     exposes `render_png_bytes()`.
+  - **In-app credential management.** The SwissID section resolves
+    accounts (env → keyring → config), prefills the form, and offers
+    *Load password*, *Save to keyring* and *Check login & quota* — all
+    via the existing `ConfigLayer` / `KeyringStore`, so no CLI round-trip
+    is needed. `service.resolve_auth` / `save_to_keyring` / `check_login`
+    are network-free (mock-testable except the live login probe).
 
 ### Removed
 
