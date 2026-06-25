@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from postcards._vendor.postcard_creator.postcard_creator import PostcardCreatorException
-from postcards._vendor.postcard_creator.token import Token
+from postcards._vendor.postcard_creator.token import Token, extract_authorization_code
 
 _SUCCESS_URL = "https://login.swissid.ch/success-callback"
 _SAML_FORM_ACTION = "https://pccweb.api.post.ch/saml-form-post"
@@ -123,3 +123,36 @@ def test_has_valid_credentials_false_on_failure() -> None:
     session = _SwissIdSession(fail_at_login=True)
     assert token.has_valid_credentials("a", "bad", method="swissid", session=session) is False
     assert token.token is None
+
+
+# ---------------------------------------------------------------------------
+# Browser-assisted login
+# ---------------------------------------------------------------------------
+
+
+def test_extract_authorization_code_from_redirect_url() -> None:
+    url = "ch.post.pcc://auth/1016c75e?code=ABC123&state=abcd"
+    assert extract_authorization_code(url) == "ABC123"
+
+
+def test_extract_authorization_code_from_raw_code() -> None:
+    assert extract_authorization_code("  RAWCODE  ") == "RAWCODE"
+
+
+def test_extract_authorization_code_rejects_empty() -> None:
+    with pytest.raises(PostcardCreatorException):
+        extract_authorization_code("")
+
+
+def test_build_authorize_url_contains_challenge_and_returns_verifier() -> None:
+    url, verifier = Token().build_authorize_url()
+    assert url.startswith("https://pccweb.api.post.ch/OAuth/authorization?")
+    assert "code_challenge=" in url and "code_challenge_method=S256" in url
+    assert len(verifier) > 20
+
+
+def test_exchange_code_sets_access_token() -> None:
+    token = Token()
+    token.exchange_code("CODE123", "verifier", session=_SwissIdSession())
+    assert token.token == "ACCESS"
+    assert token.token_implementation == "swissid-browser"

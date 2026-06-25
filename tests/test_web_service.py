@@ -285,3 +285,39 @@ def test_check_login_surfaces_auth_failure() -> None:
     result = service.check_login(backend, "u@x.ch", "pw")
     assert result.ok is False
     assert "bad creds" in result.detail
+
+
+# ---------------------------------------------------------------------------
+# browser-assisted login (SwissID 2FA)
+# ---------------------------------------------------------------------------
+
+
+class _TokenExchangeResponse:
+    status_code = 200
+
+    def json(self) -> dict[str, object]:
+        return {"access_token": "ACCESS", "token_type": "Bearer", "expires_in": 3600}
+
+
+class _TokenExchangeSession:
+    """Fake session whose token endpoint returns a valid access token."""
+
+    def post(self, url: str, **kwargs: object) -> _TokenExchangeResponse:
+        return _TokenExchangeResponse()
+
+
+def test_begin_browser_login_returns_url_and_verifier() -> None:
+    url, verifier = service.begin_browser_login()
+    assert url.startswith("https://pccweb.api.post.ch/OAuth/authorization?")
+    assert "code_challenge=" in url
+    assert verifier
+
+
+def test_complete_browser_login_returns_authenticated_backend() -> None:
+    backend = service.complete_browser_login(
+        "ch.post.pcc://auth/x?code=ABC123", "verifier", session=_TokenExchangeSession()
+    )
+    # The returned backend is authenticated and can dry-run a send offline.
+    outcome = service.send_draft(_valid_draft(), backend=backend, dry_run=True)
+    assert outcome.ok is True
+    assert outcome.backend == "swissid"

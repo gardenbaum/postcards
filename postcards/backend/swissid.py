@@ -179,6 +179,46 @@ class SwissIdConsumerBackend:
         self._account = username
         _LOGGER.info("authenticated as %s", username)
 
+    # ------------------------------------------------------------------
+    # Browser-assisted login (for SwissID accounts with mandatory 2FA)
+    # ------------------------------------------------------------------
+
+    def begin_browser_login(self) -> tuple[str, str]:
+        """Start a browser-assisted login; return ``(authorize_url, verifier)``.
+
+        The user opens ``authorize_url`` in a browser, completes the SwissID
+        login + 2FA (push / passkey / SMS — whatever their account uses), and
+        copies the resulting ``ch.post.pcc://...?code=...`` redirect. Pass the
+        code and ``verifier`` to :meth:`complete_browser_login`.
+        """
+        from postcards._vendor.postcard_creator import Token
+
+        return Token().build_authorize_url()
+
+    def complete_browser_login(
+        self, code_or_url: str, verifier: str, *, session: object = None
+    ) -> None:
+        """Finish a browser-assisted login by exchanging the pasted code.
+
+        Leaves the backend authenticated (``send`` / ``quota`` work after).
+        Maps failures to :class:`AuthenticationError`.
+        """
+        from postcards._vendor.postcard_creator import Token
+        from postcards._vendor.postcard_creator.postcard_creator import PostcardCreatorException
+        from postcards._vendor.postcard_creator.token import extract_authorization_code
+
+        token = Token()
+        try:
+            code = extract_authorization_code(code_or_url)
+            token.exchange_code(code, verifier, session=session)
+        except PostcardCreatorException as exc:
+            raise AuthenticationError(f"SwissID code exchange failed: {exc}") from exc
+        if not token.token:
+            raise AuthenticationError("SwissID code exchange did not return an access token")
+        self._token = token
+        self._account = "swissid"
+        _LOGGER.info("authenticated via browser-assisted login")
+
     def quota(self) -> QuotaInfo:
         """Return the quota for the authenticated account.
 

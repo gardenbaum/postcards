@@ -59,6 +59,9 @@ class _UiState:
     guides: bool = True
     backend: str = "mock"
     dry_run: bool = True
+    # Browser-assisted SwissID login (for accounts with mandatory 2FA):
+    verifier: str = ""  # PKCE verifier for the in-progress browser login
+    authed_backend: PostcardBackend | None = None  # set once login completes
 
 
 @ui.page("/")
@@ -131,14 +134,19 @@ def _compose_page() -> None:
         refresh()
 
     def do_send() -> None:
-        backend = _build_backend(state.backend)
-        outcome = service.send_draft(
-            draft,
-            backend=backend,
-            username=username_input.value if state.backend == "swissid" else "",
-            password=password_input.value if state.backend == "swissid" else "",
-            dry_run=state.dry_run,
-        )
+        # Prefer an already-authenticated backend from the browser login
+        # (the only path that works for SwissID accounts with 2FA).
+        if state.backend == "swissid" and state.authed_backend is not None:
+            outcome = service.send_draft(draft, backend=state.authed_backend, dry_run=state.dry_run)
+        else:
+            backend = _build_backend(state.backend)
+            outcome = service.send_draft(
+                draft,
+                backend=backend,
+                username=username_input.value if state.backend == "swissid" else "",
+                password=password_input.value if state.backend == "swissid" else "",
+                dry_run=state.dry_run,
+            )
         ui.notify(
             outcome.message + (f" ({outcome.confirmation})" if outcome.confirmation else ""),
             type="positive" if outcome.ok else "negative",
@@ -219,12 +227,60 @@ def _compose_page() -> None:
                         )
                     cred_status = ui.label("").classes("text-caption opacity-80")
                     ui.label(
-                        "Credentials resolve from env → OS keyring → config file. "
-                        "Live login does NOT support 2-factor auth — it works only for "
-                        "SwissID accounts that log in with e-mail + password alone, and "
-                        "the account must have used the official Postcard Creator app once. "
-                        "Secrets are never stored except when you click “Save to keyring”."
+                        "Direct e-mail + password login does NOT support 2-factor auth. "
+                        "If your account has 2FA (push / passkey / SMS), use the browser "
+                        "login below instead. Secrets are never stored except via "
+                        "“Save to keyring”."
                     ).classes("text-caption opacity-60")
+
+                    ui.separator()
+                    ui.label("Browser login (works with 2FA — push / passkey / SMS)").classes(
+                        "text-caption text-weight-medium"
+                    )
+                    ui.label(
+                        "1. Open SwissID in your browser, log in and approve the push in "
+                        "your SwissID app. 2. The browser ends on a page it can't open — a "
+                        "“ch.post.pcc://… ?code=…” address. Copy that whole address (or just "
+                        "the code) and paste it below, then Complete login."
+                    ).classes("text-caption opacity-60")
+
+                    def do_browser_start() -> None:
+                        url, verifier = service.begin_browser_login()
+                        state.verifier = verifier
+                        ui.navigate.to(url, new_tab=True)
+                        ui.notify(
+                            "Opened SwissID in a new tab. After approving the push, copy the "
+                            "final ch.post.pcc:// address back here.",
+                            timeout=8000,
+                        )
+
+                    browser_code_input = (
+                        ui.input("Paste code / redirect URL")
+                        .props("outlined dense")
+                        .classes("w-full")
+                    )
+
+                    def do_browser_complete() -> None:
+                        if not state.verifier:
+                            ui.notify("Click “Open SwissID login” first.", type="warning")
+                            return
+                        try:
+                            state.authed_backend = service.complete_browser_login(
+                                browser_code_input.value or "", state.verifier
+                            )
+                            cred_status.set_text("✓ Authenticated via browser login.")
+                            cred_status.classes(replace="text-caption text-green-8")
+                            ui.notify("SwissID login complete — you can send now.", type="positive")
+                        except Exception as exc:
+                            ui.notify(f"Login failed: {exc}", type="negative", timeout=8000)
+
+                    with ui.row().classes("items-center gap-2"):
+                        ui.button(
+                            "1 · Open SwissID login", on_click=lambda: do_browser_start()
+                        ).props("dense color=primary")
+                        ui.button(
+                            "2 · Complete login", on_click=lambda: do_browser_complete()
+                        ).props("dense")
                 cred_box.set_visibility(False)
 
                 # Prefill from resolved accounts (env / keyring / config).
