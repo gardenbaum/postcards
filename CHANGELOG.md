@@ -9,6 +9,69 @@ as is practical for a wrapper around an unofficial upstream API.
 
 ### Added
 
+- **M4 — batch send + scheduling.** Multi-recipient
+  dispatch plus a local send queue with delayed and
+  recurring jobs:
+
+  - `postcards batch` — send one postcard to each of many
+    recipients. Recipient sources:
+
+    - `--to-many NAME1,NAME2,...` (inline list)
+    - `--to-all-recipients` (every recipient in the address
+      book)
+    - `--manifest PATH` (CSV or YAML; `.yaml`/`.yml`
+      → YAML, otherwise CSV)
+
+    Per-recipient overrides on a manifest row (`picture`,
+    `message`, `message_template`, `sender`, `var`) win over
+    the shared CLI flags. Per-recipient failures are
+    surfaced in a summary; `--stop-on-error` aborts on the
+    first failure. Reuses the same send plumbing as
+    `postcards send` so every input the latter accepts is
+    also accepted by `batch`.
+
+  - `postcards schedule {add,list,show,remove,retry,run}`
+    — manage the local send queue.
+
+    - `add` — queue a one-shot (`--at ISO-TIMESTAMP`) or
+      a recurring (`--recurring every:Nd` /
+      `--recurring weekly:mon[,tue,...]`) job.
+    - `list` / `show` / `remove` — local queue
+      introspection.
+    - `retry` — reset a `failed` job back to `pending`.
+    - `run` — dispatch every due job against the
+      configured backend. Quota-exhausted jobs are
+      rescheduled to the next UTC midnight; failing jobs
+      stay in the queue and surface in `last_error`.
+      Cron-friendly via `--quiet`.
+
+  New package `postcards.schedule/` with value-type
+  models (`ScheduledJob`, `JobStatus`, `RecurrenceRule`,
+  `ScheduleBook`), a `Clock` protocol with `SystemClock` +
+  `FakeClock` for testable time travel, atomic JSON
+  persistence under
+  `$XDG_DATA_HOME/postcards/schedule.json`, and a runner
+  that walks the book, logs into the backend, checks
+  quota, and dispatches via the modern `PostcardBackend`
+  protocol. The runner is unit-tested against
+  `MockBackend` + `FakeClock` — no live Swiss Post call,
+  no real time travel.
+
+  See `docs/BATCH.md` and `docs/SCHEDULE.md` for the
+  user-facing guides.
+
+  Tests: 73 schedule-model tests (recurrence parsing and
+  advance semantics, ScheduledJob value-type discipline,
+  ScheduleBook JSON round-trip, Clock / FakeClock);
+  15 schedule-storage tests (atomic write, missing-file,
+  schema validation); 18 schedule-runner tests
+  (one-shot, recurring every-N-days, weekly, quota
+  exhaustion, error paths, dry-run, multi-job walks,
+  value-type discipline, picture loading); 18 batch-CLI
+  integration tests; 21 schedule-CLI integration tests.
+  Local gate: ruff + ruff-format + mypy + 768/768 pytest
+  (up from 623 after M4 address book / templates).
+
 - **M4 — address book + message templates.** A persistent
   per-user store under `$XDG_DATA_HOME/postcards/` (overridable
   via `POSTCARDS_DATA_DIR`) holds named recipients / senders
