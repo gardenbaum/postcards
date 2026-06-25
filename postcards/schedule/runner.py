@@ -90,6 +90,7 @@ from postcards.backend.base import (
     SendResult,
 )
 from postcards.backend.exceptions import QuotaExhaustedError as BackendQuotaExhaustedError
+from postcards.backend.messages import translate as translate_backend_error
 from postcards.models.message import Message
 from postcards.models.postcard import Postcard
 from postcards.schedule.models import (
@@ -307,15 +308,21 @@ def _dispatch_one(
             message=f"quota exhausted; rescheduled to {rescheduled_at.isoformat()}",
         )
     except Exception as exc:
+        # M5: run the exception through the shared translator so the
+        # ``last_error`` field and the per-job ``message`` carry an
+        # actionable hint instead of the raw ``str(exc)``. The
+        # ``send failed:`` prefix is preserved so existing
+        # ``schedule list`` parsers keep matching.
+        actionable, _exit_code = translate_backend_error(exc)
         updated = job.with_status(
             JobStatus.FAILED,
             last_run_at=now,
-            last_error=str(exc) or exc.__class__.__name__,
+            last_error=actionable,
         )
         return updated, ExecutionResult(
             job_id=job.id,
             outcome=JobOutcome.FAILED,
-            message=f"send failed: {exc}",
+            message=actionable,
         )
 
     # Successful dispatch — update bookkeeping and possibly advance.

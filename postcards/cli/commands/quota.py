@@ -38,6 +38,7 @@ from postcards.backend import QuotaInfo, select_backend
 from postcards.backend.exceptions import QuotaExhaustedError
 from postcards.backend.registry import BackendNotAvailableError
 from postcards.cli.app import app
+from postcards.cli.backend_errors import raise_for_backend_error
 from postcards.cli.errors import raise_cli_error
 from postcards.cli.options import backend_option, password_option, username_option
 
@@ -214,7 +215,11 @@ def quota_cmd(
                 retention_days=exc.retention_days,
             )
         except Exception as exc:
-            raise_cli_error(f"login failed: {exc}")
+            # ``AuthenticationError``, ``TransientBackendError``,
+            # ``RetryExhaustedError`` and any future backend-level
+            # exception flow through the centralised translator
+            # so the user gets a consistent hint and exit code.
+            raise_for_backend_error(exc)
         else:
             try:
                 info = instance.quota()
@@ -224,6 +229,11 @@ def quota_cmd(
                     next_available_at=exc.next_available_at,
                     retention_days=exc.retention_days,
                 )
+            except Exception as exc:
+                # Same centralised translator as the login branch
+                # above — a transient 5xx or a retry-exhausted
+                # quota call ends with the same actionable message.
+                raise_for_backend_error(exc)
 
     backend_name = backend or os.environ.get("POSTCARDS_BACKEND") or "swissid"
     if info.available:

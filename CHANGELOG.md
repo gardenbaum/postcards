@@ -9,6 +9,84 @@ as is practical for a wrapper around an unofficial upstream API.
 
 ### Added
 
+- **M5 — retries, quota awareness, structured logging.**
+  The CLI now handles flaky networks, the daily
+  1-card quota, and verbose logging as first-class
+  concerns. See `docs/ROBUSTNESS.md` for the full
+  reference.
+
+  - **Retry / backoff.** New `postcards.retry` module
+    with a typed `RetryPolicy` dataclass (4 attempts,
+    0.5s base delay, 2x multiplier, 8s ceiling) and a
+    `with_retries()` helper implementing AWS-style full
+    jitter. The SwissID backend wraps every
+    `backend.login`, `backend.quota`, and `backend.send`
+    call in it; the classifier retries on
+    `TransientBackendError` and on `requests` network
+    exceptions (`ConnectionError`, `Timeout`, 5xx
+    `HTTPError`). `AuthenticationError`, `QuotaExhaustedError`,
+    and `NotImplementedError` (the shim's "not implemented"
+    stub) are non-retryable. New
+    `postcards.backend.exceptions` module owns the
+    typed hierarchy:
+
+    ```
+    BackendError(RuntimeError)
+    ├── AuthenticationError
+    ├── QuotaExhaustedError(next_available_at, retention_days)
+    └── TransientBackendError
+    ```
+
+  - **Quota awareness.** `postcards quota` gained
+    `--wait` (block until the quota opens, with
+    `--max-wait` and `--poll` controls) and `--no-fail`
+    (exit 0 even on exhaustion, for shell-script gates).
+    The next-available timestamp is included in every
+    quota-related error message. `schedule run` catches
+    `QuotaExhaustedError` and reschedules the affected
+    job to the next UTC midnight; the runner's
+    `QuotaExhaustedError` subclasses the backend-level
+    one so a single `except` catches both.
+
+  - **Structured logging.** New `postcards.log` module
+    owns the log-level mapping (`-v` / `-vv` / `-vvv` →
+    INFO / DEBUG / TRACE), the TRACE custom level
+    (numeric 5, registered at import time), and the
+    standard + brief format strings. Every dispatch
+    step in the schedule runner emits an
+    INFO/DEBUG/WARN line so `schedule run -vv` shows
+    exactly where a job got stuck.
+
+  - **Actionable error messages.** New
+    `postcards.backend.messages.translate` and the
+    CLI-facing `postcards.cli.backend_errors.raise_for_backend_error`
+    translate every typed backend exception into a
+    `(message, exit_code)` pair. The message ends with
+    a hint about the next step (the credential env
+    vars, `postcards quota --wait`, `--backend=mock`,
+    `--verbose`); the exit code is 1 for permanent
+    failures and 75 (`EX_TEMPFAIL`) for transient
+    failures so a cron job can distinguish "retry
+    later" from "fix the config".
+
+  New `postcards/backend/messages.py` and
+  `postcards/cli/backend_errors.py` modules; new
+  `MockBackend` failure-injection knobs
+  (`transient_errors_remaining`, `send_exception`) drive
+  the retry path from tests.
+
+  Test count: 768 → 857 (+89). New tests live in
+  `tests/test_log.py` (12 unit tests on the log module),
+  `tests/test_retry.py` (18 on the retry helper),
+  `tests/test_backend_exceptions.py` (11 on the typed
+  exceptions), `tests/test_backend_errors_cli.py`
+  (19 on the error translator), plus additions to
+  `tests/test_backend_integration.py` (4 retry-driven
+  integration tests), `tests/test_schedule_runner.py`
+  (3 tests on actionable error messages and
+  structured logging), and `tests/test_typer_cli.py`
+  (5 tests on the new `quota` flags).
+
 - **M4 — batch send + scheduling.** Multi-recipient
   dispatch plus a local send queue with delayed and
   recurring jobs:

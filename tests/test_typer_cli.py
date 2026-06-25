@@ -962,6 +962,83 @@ def test_quota_wait_polls_until_open(
     assert counter["n"] >= 2
 
 
+def test_quota_translates_authentication_error_into_actionable_message(
+    runner: CliRunner,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``quota`` runs ``AuthenticationError`` through the M5 translator.
+
+    The mock backend is configured to fail login with an
+    :class:`AuthenticationError`. The CLI must surface the
+    backend-error translator's hint (credentials, accounts file,
+    ``--backend=mock``) instead of the raw exception text.
+    """
+    from postcards.backend import MockBackend
+    from postcards.backend.exceptions import AuthenticationError
+    from postcards.cli.commands import quota as quota_module
+
+    sentinel = MockBackend(should_fail_login=True, login_error=AuthenticationError("bad pw"))
+
+    def fake_select(
+        env: dict[str, str] | None = None,
+        config: dict[str, object] | None = None,
+        *,
+        default: str = "swissid",
+    ) -> MockBackend:
+        return sentinel
+
+    monkeypatch.setattr(quota_module, "select_backend", fake_select)
+    monkeypatch.setenv("POSTCARDS_USERNAME", "alice")
+    monkeypatch.setenv("POSTCARDS_PASSWORD", "alice-pw")
+
+    result = _invoke("quota", "--backend", "mock")
+    assert result.exit_code == 1, result.output
+    assert "credentials" in result.output.lower()
+    assert "POSTCARDS_USERNAME" in result.output
+
+
+def test_quota_translates_quota_call_exception(
+    runner: CliRunner,
+    clean_env: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``quota`` runs a backend error raised inside ``backend.quota()`` through the translator.
+
+    The mock backend's login succeeds but the quota call raises a
+    :class:`TransientBackendError` after retries are exhausted
+    (so it propagates as :class:`RetryExhaustedError`). The CLI
+    must surface the retry-exhaustion message + ``--verbose`` hint.
+    """
+    from postcards.backend import MockBackend
+    from postcards.cli.commands import quota as quota_module
+    from postcards.retry import RetryExhaustedError
+
+    sentinel = MockBackend()
+
+    def fake_select(
+        env: dict[str, str] | None = None,
+        config: dict[str, object] | None = None,
+        *,
+        default: str = "swissid",
+    ) -> MockBackend:
+        return sentinel
+
+    def boom_quota(self: MockBackend):  # type: ignore[no-untyped-def]
+        raise RetryExhaustedError("quota fetch failed after 4 attempt(s): simulated outage")
+
+    monkeypatch.setattr(quota_module, "select_backend", fake_select)
+    monkeypatch.setattr(MockBackend, "quota", boom_quota)
+    monkeypatch.setenv("POSTCARDS_USERNAME", "alice")
+    monkeypatch.setenv("POSTCARDS_PASSWORD", "alice-pw")
+
+    result = _invoke("quota", "--backend", "mock")
+    # ``RetryExhaustedError`` maps to ``75`` (EX_TEMPFAIL).
+    assert result.exit_code == 75, result.output
+    assert "quota fetch failed" in result.output
+    assert "--verbose" in result.output or "--backend=mock" in result.output
+
+
 # ---------------------------------------------------------------------------
 # credentials
 # ---------------------------------------------------------------------------
