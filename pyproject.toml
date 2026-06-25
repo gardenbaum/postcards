@@ -138,7 +138,7 @@ Homepage = "https://github.com/gardenbaum/postcards"
 Repository = "https://github.com/gardenbaum/postcards"
 Documentation = "https://github.com/gardenbaum/postcards#readme"
 Issues = "https://github.com/gardenbaum/postcards/issues"
-Changelog = "https://github.com/gardenbaum/postcards/blob/master/CHANGELOG.md"
+Changelog = "https://github.com/gardenbaum/postcards/blob/main/CHANGELOG.md"
 Upstream = "https://github.com/abertschi/postcards"
 
 [project.entry-points."postcards.plugins"]

@@ -100,10 +100,10 @@ tag a release until CI is green.
 ### 5. Tag + push
 
 ```sh
-git checkout master
+git checkout main
 git pull --ff-only
-git tag -s -a v3.0.0 -m "postcards 3.0.0: M6 packaging, distribution, docs"
-git push origin v3.0.0
+git tag -s -a v4.0.0 -m "postcards 4.0.0: NiceGUI WYSIWYG web app"
+git push origin v4.0.0
 ```
 
 The `-s` flag signs the tag with your GPG key; signed tags are the
