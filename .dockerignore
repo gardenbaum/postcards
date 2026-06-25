@@ -1,0 +1,53 @@
+# .dockerignore — keep the build context small.
+#
+# The Dockerfile copies only what it needs (pyproject.toml, README.md,
+# LICENSE, CHANGELOG.md, postcards/), but a stray `.git` or `.venv`
+# in the build context still bloats `docker build` and can change
+# layer hashes between identical-looking builds.
+
+# VCS metadata (not needed for `pip install .`)
+.git
+.gitignore
+.github
+
+# Virtualenvs (the build uses the system Python in the build stage)
+.venv
+.venv-*
+venv
+
+# Tooling caches
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+.coverage.*
+.cache
+
+# Distribution artifacts that we regenerate inside the container
+dist
+build
+*.egg-info
+*.egg
+
+# Test outputs and scratch
+tests
+example
+tmp
+tmp-pic
+playground.py
+img.jpg
+config*.json
+accounts.json
+run.sh
+pictures
+
+# Editor / OS
+.idea
+.vscode
+.DS_Store
+
+# The Dockerfile itself (the build context already references it
+# explicitly via `docker build -f` or the default)
+Dockerfile
+.dockerignore
