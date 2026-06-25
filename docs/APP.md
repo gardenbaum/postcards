@@ -100,6 +100,10 @@ Toggle **Print guides** off to see the card without the overlay.
 
 ### SwissID, 2FA & quota — read this before a live send
 
+A live send performs the **real** SwissID OAuth + SAML login and posts
+the card to the Swiss Post Postcard Creator mobile API — it is no longer
+a stub. The same flow backs the CLI `postcards send`.
+
 - The free tier is **one card per day** per SwissID account.
 - SwissID login uses **anomaly detection** and can require **2FA**, so a
   live login is an **interactive, manual step** — it cannot run

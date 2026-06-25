@@ -258,21 +258,26 @@ def test_quota_info_from_dict_parses_upstream_shape() -> None:
 def shim_with_mocked_network() -> Iterator[SwissIdConsumerBackend]:
     """Patch the shim's network methods so a real backend can run.
 
-    The shim raises ``NotImplementedError`` for every network call;
-    we install stubs that record the call and set ``token.token`` so
-    ``PostcardCreator(token)`` accepts it.
+    We patch the shim's network methods with stubs that record the call
+    and set ``token.token`` so no live SwissID / Swiss Post call is made.
     """
     calls: dict[str, list[object]] = {
-        "has_valid_credentials": [],
+        "fetch_token": [],
         "send_free_card": [],
         "has_free_postcard": [],
         "get_quota": [],
     }
 
-    def mock_has_valid_credentials(self: Token, username: str | None, password: str | None) -> bool:
-        calls["has_valid_credentials"].append((username, password))
+    def mock_fetch_token(
+        self: Token,
+        username: str | None,
+        password: str | None,
+        method: str = "swissid",
+        *,
+        session: object = None,
+    ) -> None:
+        calls["fetch_token"].append((username, password))
         self.token = "<mocked>"
-        return True
 
     def mock_has_free_postcard(self: PostcardCreatorBase) -> bool:
         calls["has_free_postcard"].append(True)
@@ -300,7 +305,7 @@ def shim_with_mocked_network() -> Iterator[SwissIdConsumerBackend]:
     from typing import cast as _cast
 
     patches = [
-        _umock.patch.object(Token, "has_valid_credentials", mock_has_valid_credentials),
+        _umock.patch.object(Token, "fetch_token", mock_fetch_token),
         _umock.patch.object(PostcardCreatorBase, "send_free_card", mock_send_free_card),
         _umock.patch.object(PostcardCreatorBase, "has_free_postcard", mock_has_free_postcard),
         _umock.patch.object(PostcardCreatorBase, "get_quota", mock_get_quota),
@@ -314,10 +319,10 @@ def shim_with_mocked_network() -> Iterator[SwissIdConsumerBackend]:
             _cast(_umock._patch, p).stop()
 
 
-def test_swissid_backend_login_calls_token_has_valid_credentials(
+def test_swissid_backend_login_calls_token_fetch_token(
     shim_with_mocked_network: SwissIdConsumerBackend,
 ) -> None:
-    """``SwissIdConsumerBackend.login`` delegates to the shim's Token method."""
+    """``SwissIdConsumerBackend.login`` delegates to the shim's ``Token.fetch_token``."""
     shim = shim_with_mocked_network
     shim.login("alice", "alice-secret")
     # ``_account`` is set so subsequent calls know which username authenticated.
@@ -582,12 +587,18 @@ def test_swissid_send_recovers_after_transient_failures(
             raise TransientBackendError(f"flap {calls['n']}")
         return None
 
-    def fake_login(self: Token, username: str | None, password: str | None) -> bool:
+    def fake_login(
+        self: Token,
+        username: str | None,
+        password: str | None,
+        method: str = "swissid",
+        *,
+        session: Any = None,
+    ) -> None:
         self.token = "<mocked>"
-        return True
 
     with (
-        _umock.patch.object(Token, "has_valid_credentials", fake_login),
+        _umock.patch.object(Token, "fetch_token", fake_login),
         _umock.patch.object(PostcardCreatorBase, "send_free_card", flaky_send),
     ):
         backend.login("alice", "pw")
@@ -624,12 +635,18 @@ def test_swissid_send_does_not_retry_on_not_implemented(
         calls["n"] += 1
         raise NotImplementedError("shim stub")
 
-    def fake_login(self: Token, username: str | None, password: str | None) -> bool:
+    def fake_login(
+        self: Token,
+        username: str | None,
+        password: str | None,
+        method: str = "swissid",
+        *,
+        session: Any = None,
+    ) -> None:
         self.token = "<mocked>"
-        return True
 
     with (
-        _umock.patch.object(Token, "has_valid_credentials", fake_login),
+        _umock.patch.object(Token, "fetch_token", fake_login),
         _umock.patch.object(PostcardCreatorBase, "send_free_card", always_not_implemented),
     ):
         backend.login("alice", "pw")
@@ -661,12 +678,18 @@ def test_swissid_quota_recovers_after_transient_failures() -> None:
             raise TransientBackendError("flap")
         return True
 
-    def fake_login(self: Token, username: str | None, password: str | None) -> bool:
+    def fake_login(
+        self: Token,
+        username: str | None,
+        password: str | None,
+        method: str = "swissid",
+        *,
+        session: Any = None,
+    ) -> None:
         self.token = "<mocked>"
-        return True
 
     with (
-        _umock.patch.object(Token, "has_valid_credentials", fake_login),
+        _umock.patch.object(Token, "fetch_token", fake_login),
         _umock.patch.object(PostcardCreatorBase, "has_free_postcard", flaky_has_free),
     ):
         backend.login("alice", "pw")

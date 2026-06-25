@@ -5,46 +5,42 @@ Why this exists
 ---------------
 
 The upstream ``postcard-creator`` package is the unofficial wrapper
-around the Swiss Postcard Creator consumer web API. It is in
-maintenance mode and the released wheels (``2.2``) declare runtime
-dependencies that no longer install cleanly on Python 3.12 / 3.13
-(``cookies``, ``Js2Py``/``pyjsparser``, an old ``python-resize-image``,
-``pytz``, ``tzlocal``, pinned 2017-era ``certifi``/``urllib3``).
+around the Swiss Postcard Creator consumer API. Its released wheels
+(``2.2``) declare runtime dependencies that no longer install cleanly
+on Python 3.12 / 3.13 (``cookies``, ``Js2Py``/``pyjsparser``, an old
+``python-resize-image``, ``pytz``, ``tzlocal``, pinned 2017-era
+``certifi``/``urllib3``).
 
-We do not need the live API to exercise the CLI surface — the
-``postcards`` codebase is a SwissID-authenticated consumer wrapper and
-cannot be exercised in CI anyway (SwissID requires real credentials
-and an anomaly-detection-protected flow with 2FA; see
-``docs/CONSTITUTION.md`` §1).
+So this package vendors a **modernized, working re-implementation** of
+the upstream's SwissID + mobile-API flow, depending only on libraries
+the project already ships (``requests``, ``beautifulsoup4``, Pillow):
 
-This shim exposes the same public names that ``postcards.postcards``
-and its plugins import (``Token``, ``PostcardCreator``, ``Postcard``,
-``Recipient``, ``Sender``, ``PostcardCreatorException``) so that:
+* :mod:`~postcards._vendor.postcard_creator.token` — the real SwissID
+  OAuth + SAML token flow (PKCE) plus the legacy ``isiweb`` path.
+* :mod:`~postcards._vendor.postcard_creator.postcard_creator` — the
+  data classes and the mobile-API client (``/user/quota``,
+  ``/card/upload``).
 
-* ``postcards --help`` runs without import errors on 3.12 / 3.13.
-* Plugin entry points (``postcards-folder``, ``postcards-random``,
-  ``postcards-pexels``, ``postcards-chuck-norris``,
-  ``postcards-yaml``) import cleanly.
-* Unit and integration tests can construct ``Recipient`` /
-  ``Sender`` / ``Postcard`` objects and exercise the CLI's send flow
-  with a ``Backend``-like mock instead of the live API.
+It keeps the upstream public names (``Token``, ``PostcardCreator``,
+``Postcard``, ``Recipient``, ``Sender``, ``PostcardCreatorException``)
+so ``postcards.postcards`` and the plugins import unchanged.
 
-Network operations on the shim (``Token.fetch_token``,
-``Token.has_valid_credentials``, ``PostcardCreator.send_free_card``,
-``PostcardCreator.has_free_postcard``, ``PostcardCreator.get_quota``)
-raise ``NotImplementedError`` so that any accidental live call is
-caught immediately rather than silently going to the network. The
-integration test suite monkey-patches these methods on a
-``PostcardCreator`` instance to drive the CLI's send flow against a
-mock backend.
+Testing / safety
+----------------
+
+Network methods accept an injectable ``session`` and ``fetch_token``
+raises :class:`PostcardCreatorException` on failure, so the test suite
+drives the full flow against a **fake session** and **never** reaches
+Swiss Post — SwissID needs real credentials and an
+anomaly-detection-protected flow with 2FA, which cannot run in CI (see
+``docs/CONSTITUTION.md`` §1). A live login is the user's manual step.
 
 Versioning
 ----------
 
-``__version__`` of the shim is suffixed with ``-shim`` so that logs and
-exception messages make clear which package answered. The upstream
-``2.2`` semantics are preserved on the data classes (``Recipient``,
-``Sender``, ``Postcard``, their ``is_valid()`` predicates).
+``__version__`` is suffixed ``-shim`` so logs make clear which package
+answered; the upstream ``2.2`` semantics are preserved on the data
+classes.
 """
 
 from __future__ import annotations

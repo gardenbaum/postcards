@@ -395,10 +395,15 @@ def test_send_does_not_call_live_network_methods(
     real_fetch_token = Token.fetch_token
 
     def recording_fetch_token(
-        self: Token, username: str | None, password: str | None, method: str = "mixed"
-    ) -> str:
+        self: Token,
+        username: str | None,
+        password: str | None,
+        method: str = "mixed",
+        *,
+        session: object = None,
+    ) -> None:
         network_calls.append("Token.fetch_token")
-        return real_fetch_token(self, username, password, method=method)
+        real_fetch_token(self, username, password, method=method, session=session)
 
     with patch.object(Token, "fetch_token", recording_fetch_token):
         cards, args = _make_postcards_for_send(tmp_path)

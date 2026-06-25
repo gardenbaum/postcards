@@ -7,12 +7,13 @@ its operations through the :class:`PostcardBackend` protocol.
 Authentication
 --------------
 
-The shim's ``Token.has_valid_credentials`` raises
-``NotImplementedError`` because the upstream SwissID login requires
-the user's real credentials and the live anomaly-detection-protected
-web flow with 2FA — see ``docs/CONSTITUTION.md`` §1. This backend
-propagates that error, so any test that exercises ``login()`` MUST
-monkey-patch the shim's ``has_valid_credentials`` first.
+``login()`` runs the real SwissID OAuth + SAML flow via
+``Token.fetch_token`` (see
+:mod:`postcards._vendor.postcard_creator.token`) and maps any
+failure to :class:`AuthenticationError`. The live flow is
+anomaly-detection-protected and can require 2FA, so it cannot run in
+CI — see ``docs/CONSTITUTION.md`` §1. Tests inject a fake ``requests``
+session or monkey-patch ``Token.fetch_token`` so no live call is made.
 
 Send
 ----
@@ -35,16 +36,11 @@ M5: retries and quota classification
 
 :meth:`quota` and :meth:`send` are wrapped in
 :func:`postcards.retry.with_retries` so a transient network blip
-does not surface as a fatal error. The shim raises
-``NotImplementedError`` from every network method (because the
-vendored module is a stub — see ``postcards._vendor.postcard_creator``);
-this is **not** a transient error and the classifier treats it as
-non-retryable. When the user installs the real ``postcard-creator``
-PyPI package, the shim is no longer used, and the retry classifier
-will see real network errors (``requests.exceptions.ConnectionError``,
-``Timeout``, ``HTTPError`` with status ``5xx``); those get
-re-raised as :class:`postcards.backend.exceptions.TransientBackendError`
-which the retry helper then re-attempts with exponential backoff.
+does not surface as a fatal error. Real network errors
+(``requests.exceptions.ConnectionError``, ``Timeout``, ``HTTPError``
+with status ``5xx``) are classified as transient and re-attempted with
+exponential backoff; :class:`AuthenticationError` and
+:class:`QuotaExhaustedError` are permanent and surface immediately.
 """
 
 from __future__ import annotations
@@ -150,31 +146,30 @@ class SwissIdConsumerBackend:
     # ------------------------------------------------------------------
 
     def login(self, username: str, password: str) -> None:
-        """Authenticate via SwissID.
+        """Authenticate via SwissID and store the access token.
 
-        The vendored shim raises ``NotImplementedError`` from
-        ``Token.has_valid_credentials``; we let that propagate so a
-        test that fails to mock the shim fails loudly instead of
-        silently going to the network. Production callers (the user's
-        interactive CLI) MUST run against a real ``postcard_creator``
-        install, not the shim, so this branch never fires there.
+        Runs the real SwissID OAuth + SAML flow (see
+        :mod:`postcards._vendor.postcard_creator.token`). On failure —
+        wrong credentials, a changed endpoint, or a blocked anomaly /
+        2FA step — the underlying ``PostcardCreatorException`` is mapped
+        to :class:`AuthenticationError` so the CLI / app surface a clear
+        message.
 
-        M5: login is not retried — wrong credentials will fail the
-        same way on every attempt, and we want the user to fix the
-        credentials, not spin.
+        Login is **not** retried: bad credentials fail identically every
+        attempt, and SwissID's anomaly detection penalises rapid retries.
+        The live flow can require interactive 2FA and cannot run in CI;
+        tests inject a fake session / monkey-patch ``Token.fetch_token``.
         """
         from postcards._vendor.postcard_creator import Token
+        from postcards._vendor.postcard_creator.postcard_creator import PostcardCreatorException
 
+        token = Token()
         try:
-            token = Token()
-            token.has_valid_credentials(username, password)
-        except NotImplementedError:
-            _LOGGER.error(
-                "SwissID login is not supported by the vendored shim; "
-                "install the upstream 'postcard-creator' PyPI package "
-                "to authenticate against the live Swiss Post backend"
-            )
-            raise
+            token.fetch_token(username, password)
+        except PostcardCreatorException as exc:
+            raise AuthenticationError(f"SwissID login failed: {exc}") from exc
+        if not token.token:
+            raise AuthenticationError("SwissID login did not return an access token")
         self._token = token
         self._account = username
         _LOGGER.info("authenticated as %s", username)
