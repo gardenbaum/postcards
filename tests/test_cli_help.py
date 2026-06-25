@@ -177,7 +177,7 @@ def test_postcards_entry_point_help_lists_subcommands() -> None:
     The user-facing subcommand tree is::
 
         send, preview, generate, config, accounts, quota, status,
-        encrypt, decrypt, legacy
+        encrypt, decrypt, app
 
     This is a stronger assertion than just exit-0: it pins the
     user-facing surface so a future refactor that drops a
@@ -208,6 +208,7 @@ def test_postcards_entry_point_help_lists_subcommands() -> None:
         "status",
         "encrypt",
         "decrypt",
+        "app",
     ):
         assert subcommand in output, (
             f"{subcommand!r} subcommand missing from postcards --help output:\n{result.output}"

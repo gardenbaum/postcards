@@ -33,13 +33,13 @@ PYTHON="${PYTHON:-python3}"
 # venvs in CI), fall back to `uv pip install`. This lets the same gate
 # script run unchanged in both setups.
 if [[ "${SKIP_INSTALL:-0}" != "1" ]]; then
-    echo ">> installing package (editable, with [dev] extra) + dev tools"
+    echo ">> installing package (editable, with [dev,app] extras) + dev tools"
     if "$PYTHON" -m pip --version >/dev/null 2>&1; then
         "$PYTHON" -m pip install --upgrade pip >/dev/null 2>&1 || true
-        "$PYTHON" -m pip install -e ".[dev]"
+        "$PYTHON" -m pip install -e ".[dev,app]"
     elif command -v uv >/dev/null 2>&1; then
         uv pip install --python "$PYTHON" --upgrade pip >/dev/null 2>&1 || true
-        uv pip install --python "$PYTHON" -e ".[dev]"
+        uv pip install --python "$PYTHON" -e ".[dev,app]"
     else
         echo "error: neither pip nor uv is available to install the dev tools" >&2
         exit 1

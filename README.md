@@ -1,22 +1,33 @@
 # Postcards
 
-> Unofficial CLI for the Swiss Postcard Creator. Send real
-> physical postcards from the terminal.
+> Unofficial app + CLI for the Swiss Postcard Creator. Compose a real
+> physical postcard with a live WYSIWYG preview, or script it from the
+> terminal.
 
-[![PyPI version](https://img.shields.io/badge/pypi-3.0.0-blue.svg)](#)
+[![PyPI version](https://img.shields.io/badge/pypi-4.0.0-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-918%20passing-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-963%20passing-brightgreen.svg)](#)
 
-`postcards` is a Python CLI for sending real postcards through the
+`postcards` sends real postcards through the
 [Swiss Postcard Creator](https://postcardcreator.post.ch) — the free
 Swiss Post service that lets a SwissID account mail one physical
 postcard per day to any address in the world.
 
-This package wraps the unofficial consumer web flow behind a typed
-`Backend` interface. The CLI runs the same code on real Swiss Post
-infrastructure as on a MOCKED test backend; the test backend is what
-the 918-test suite exercises in CI.
+Two front-ends, one engine:
+
+- **`postcards app`** — an interactive web app (NiceGUI) with a **live,
+  print-accurate WYSIWYG preview** of both sides of the card: the Front
+  (A6 landscape, 3 mm bleed, safe area) and the Back (message, recipient
+  / sender address, postage box) update as you type. This is the primary
+  way to compose a card.
+- **`postcards …`** — a lean, scriptable CLI for automation, batch sends
+  and scheduling.
+
+Every Swiss Post network call goes through a typed, swappable `Backend`
+interface. The same code runs against real Swiss Post infrastructure and
+against a MOCKED test backend; the mock is what the 963-test suite (and
+CI) exercises — the live API is **never** called in tests.
 
 > **Disclaimer.** This is an **unofficial** integration. The free
 > tier is **1 card / day** per SwissID account. SwissID uses
@@ -26,49 +37,73 @@ the 918-test suite exercises in CI.
 
 ## Install
 
-The recommended path is [`pipx`](https://pypa.github.io/pipx/), which
-installs the CLI in an isolated virtualenv and exposes the entry
-points on your `PATH` without touching the system Python.
+The project uses [`uv`](https://docs.astral.sh/uv/) for environments,
+dependencies and running — `pyproject.toml` is the single source of
+truth. (Do **not** use `pipx`.)
+
+Run the interactive web app without a persistent install:
 
 ```sh
-pipx install .
+uvx --from '.[app]' postcards app      # builds an ephemeral env, opens the app
 ```
 
-Or with `pip` (any Python 3.12 / 3.13 environment):
+Or set up a project environment:
 
 ```sh
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"          # editable + dev tooling
+uv venv                                 # create .venv (Python 3.12+)
+uv pip install -e '.[app]'              # CLI + web app (NiceGUI)
+uv run postcards app                    # launch the app
 ```
 
-Or via Docker (no host Python needed):
+For development (lint + types + tests, incl. the app's UI build test):
+
+```sh
+uv pip install -e '.[dev,app]'
+uv run bash scripts/check.sh            # ruff + mypy + pytest gate
+```
+
+Install the CLI as a global tool (no app deps):
+
+```sh
+uv tool install .                       # exposes `postcards` on PATH
+```
+
+Or via Docker (no host Python needed; CLI/batch/scheduling — the web
+app is not bundled in the image):
 
 ```sh
 docker build -t postcards:dev .
 docker run --rm -it postcards:dev --help
 ```
 
-For the optional TUI, install the `gui` extra alongside the
-base install:
+See [`docs/APP.md`](docs/APP.md) for the web-app guide,
+[`docs/INSTALL.md`](docs/INSTALL.md) for per-OS install paths, and
+[`docs/DOCKER.md`](docs/DOCKER.md) for the container recipe.
+
+## The app
 
 ```sh
-pipx install '.[gui]'         # adds the textual-based TUI
-# or, in a venv:
-pip install -e '.[dev,gui]'   # dev + TUI
+postcards app                # opens http://127.0.0.1:8080 in your browser
+postcards app --port 9000 --no-browser
 ```
 
-Without the extra, `postcards tui` exits with a clear
-"install `postcards[gui]`" message. See
-[`docs/TUI.md`](docs/TUI.md) for the user guide.
+Upload or skip a picture, type the message, fill in the recipient and
+sender — the Front and Back previews redraw live, showing exactly what
+Swiss Post prints (A6, 3 mm bleed, safe area, postage box, address
+zone). Toggle **Print guides** off for a clean look. Choose the
+**Mock** backend (default — nothing is sent) or **SwissID** (live), keep
+**Dry-run** on to validate without consuming your daily quota, then
+**Send**. See [`docs/APP.md`](docs/APP.md).
 
-See [`docs/INSTALL.md`](docs/INSTALL.md) for per-OS install paths,
-[`docs/DOCKER.md`](docs/DOCKER.md) for the container recipe.
+> SwissID login can require 2FA and is subject to Swiss Post anomaly
+> detection, so a live send is a manual, interactive step — credentials
+> are read only for that send and never stored or committed.
 
 ## Quickstart
 
 ```sh
 # 1. Verify the install.
-postcards --version              # → postcards 3.0.0
+postcards --version              # → postcards 4.0.0
 postcards doctor                 # 5-check smoke test
 
 # 2. Configure SwissID credentials (one of three options).
@@ -114,36 +149,12 @@ shape.
 | `postcards schedule` | Add / list / run / remove recurring postcard jobs |
 | `postcards keyring` | Manage SwissID credentials in the OS keyring (`set`, `delete`, `status`) |
 | `postcards config` | Inspect / patch the merged config layer |
-| `postcards tui` | Launch the local Textual-based TUI (opt-in via `postcards[gui]`) |
+| `postcards app` | Launch the interactive WYSIWYG web app (opt-in via `postcards[app]`) |
 
 The legacy plugin entry points (`postcards-folder`, `postcards-yaml`,
 `postcards-pexels`, `postcards-chuck-norris`) are also installed for
 backward compatibility; new code should use the unified
 `postcards send --plugin <name>` interface.
-
-## Local TUI
-
-`postcards tui` launches a small [Textual]-based terminal UI
-for composing, previewing, and sending a postcard without
-leaving the terminal. The TUI is **opt-in**: install the
-`gui` extra first (`pip install 'postcards[gui]'` or
-`pipx install '.[gui]'`), then run:
-
-[Textual]: https://textual.textualize.io/
-
-```sh
-postcards tui
-```
-
-The TUI defaults to **dry-run** mode (no SwissID login, no
-quota consumption, no network) and asks for an explicit
-`YES` confirmation before sending for real. The form is a
-thin layer on top of the same pipeline the CLI uses —
-mutations to the address book and templates still happen
-via `postcards addresses add ...` /
-`postcards templates add ...`. See
-[`docs/TUI.md`](docs/TUI.md) for the full walkthrough,
-keyboard reference, and safety model.
 
 ## Configuration
 
@@ -383,10 +394,11 @@ public API; this package reverse-engineers the consumer web flow.
 When the upstream changes, we update the wrapper, not the
 wrapper's callers.
 
-**Why `pipx` over `pip`?** `pipx` keeps the CLI's deps (`typer`,
-`keyring`, `requests`, …) out of your project venvs and the system
-Python. The wheel is identical either way; `pipx install .` is
-verified by the M6 distribution tests.
+**Why `uv` (and not `pip`/`pipx`)?** `uv` manages the environment,
+dependencies and execution from a single `pyproject.toml`, and is fast
+and reproducible. `uv tool install .` exposes the CLI on your `PATH` in
+an isolated env; `uvx --from '.[app]' postcards app` runs the app with
+no persistent install.
 
 **Why a Docker image?** Hosts that cannot install Python 3.12+
 system-wide (locked-down laptops, NAS devices, CI runners) get a
@@ -398,11 +410,14 @@ SwissID auth has anomaly detection + 2FA, so it cannot run in CI.
 The mock is the single source of truth for the backend's contract;
 when the upstream drifts, we update the mock, not the tests.
 
-**Why a TUI and not a web UI?** The TUI runs in the same terminal
-the rest of the tool runs in, needs no browser or second port,
-works over SSH and in containers, and is fully testable via
-`textual.pilot.Pilot`. The `gui` extra keeps `textual` off the
-default install path. See [`docs/TUI.md`](docs/TUI.md).
+**Why a web app and not a TUI?** A postcard is a visual object, so the
+one thing the tool must get right is *seeing the card before you send
+it*. A browser canvas renders the real A6 layout — bleed, safe area,
+postage box, address zone — pixel-for-pixel via the same Pillow renderer
+the CLI's `postcards preview` uses; a terminal can't. The previous
+Textual TUI only opened a temp PNG externally, so v4 replaced it with
+the NiceGUI app. The `app` extra keeps NiceGUI off the default install
+path. See [`docs/APP.md`](docs/APP.md).
 
 ## Development
 
@@ -410,14 +425,14 @@ default install path. See [`docs/TUI.md`](docs/TUI.md).
 # 1. Clone and bootstrap.
 git clone https://github.com/gardenbaum/postcards.git
 cd postcards
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv venv
+uv pip install -e ".[dev,app]"
 
 # 2. The gate (runs all four checks).
-bash scripts/check.sh
+uv run bash scripts/check.sh
 
 # 3. Run the tests.
-pytest
+uv run pytest
 
 # 4. Run a single test file.
 pytest tests/test_backend_integration.py -v

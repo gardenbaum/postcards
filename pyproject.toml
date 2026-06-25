@@ -111,19 +111,22 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-cov>=5",
+    # The web-app UI build test is async (NiceGUI's user simulation).
+    # pytest-asyncio also registers the ``asyncio_mode`` ini key the
+    # gate sets below; it is a dev-only tool.
+    "pytest-asyncio>=0.24",
     "ruff>=0.5",
     "mypy>=1.10",
 ]
-# M6: optional local TUI. ``textual`` is a moderate dep (transitively
-# pulls in ``rich``, ``markdown-it-py``, ``linkify-it-py`` etc.), so
-# users who never run ``postcards tui`` should not have to install it.
-# Install with ``pip install postcards[gui]`` to opt in. The TUI
-# itself is a thin layer on top of the existing pipeline; it does
-# not duplicate the CLI and never calls the network directly (it
-# delegates to ``postcards.cli`` and the address-book / template
-# storage modules).
-gui = [
-    "textual>=0.85",
+# The interactive WYSIWYG web app (``postcards app``). NiceGUI bundles
+# its own FastAPI/uvicorn server and serves a single-page UI; the live
+# Front/Back preview reuses the offline Pillow renderer
+# (:mod:`postcards.render`), so the app never calls Swiss Post just to
+# draw a card. Kept an optional extra so the core CLI install stays
+# small. Install with ``uv pip install 'postcards[app]'`` (or
+# ``pip install 'postcards[app]'``) to opt in.
+app = [
+    "nicegui>=2.0",
 ]
 
 [project.urls]
@@ -193,6 +196,7 @@ packages = [
     "postcards.plugins",
     "postcards.plugins.builtin",
     "postcards.render",
+    "postcards.web",
     "postcards._vendor",
     "postcards._vendor.postcard_creator",
     "postcards.plugin_chuck_norris",
@@ -296,6 +300,10 @@ check_untyped_defs = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 minversion = "8.0"
+# ``auto`` mode lets the NiceGUI web-app UI test (``tests/test_web_app``)
+# use plain ``async def`` without an explicit ``@pytest.mark.asyncio``.
+# Registered by pytest-asyncio (in the ``dev`` extra).
+asyncio_mode = "auto"
 addopts = [
     "-ra",
     "--strict-markers",

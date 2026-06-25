@@ -123,6 +123,40 @@ _BACK_BG_COLOR: Final[tuple[int, int, int]] = (252, 250, 244)
 _PLACEHOLDER_BG_TOP: Final[tuple[int, int, int]] = (220, 230, 245)
 _PLACEHOLDER_BG_BOTTOM: Final[tuple[int, int, int]] = (180, 200, 230)
 
+#: Physical A6 landscape dimensions (mm). The render canvas
+#: (:data:`RENDER_WIDTH` x :data:`RENDER_HEIGHT`) maps onto this, so a
+#: millimetre converts to pixels via :data:`_PX_PER_MM`.
+_A6_WIDTH_MM: Final[float] = 148.0
+_A6_HEIGHT_MM: Final[float] = 105.0
+
+#: Average pixels-per-millimetre across both axes. The horizontal and
+#: vertical scale differ by <0.3 % (1500/148 vs 1062/105), so a single
+#: averaged factor is accurate enough for the guide overlays.
+_PX_PER_MM: Final[float] = (RENDER_WIDTH / _A6_WIDTH_MM + RENDER_HEIGHT / _A6_HEIGHT_MM) / 2
+
+#: Print bleed in millimetres. Swiss Post trims the card to the A6 cut
+#: line; artwork must extend 3 mm past it so a slightly misaligned cut
+#: never reveals a white edge. The front-preview guides mark both the
+#: bleed edge and the inner "safe area".
+_BLEED_MM: Final[float] = 3.0
+_BLEED_PX: Final[int] = round(_BLEED_MM * _PX_PER_MM)
+
+#: Colour of the WYSIWYG guide overlays (bleed line, safe area, zones).
+#: A semi-saturated cyan reads clearly over both photos and the warm
+#: back panel without being mistaken for printed content.
+_GUIDE_COLOR: Final[tuple[int, int, int]] = (0, 160, 200)
+_SAFE_AREA_COLOR: Final[tuple[int, int, int]] = (40, 180, 90)
+
+#: Stamp / franking area on the back, top-right corner. Swiss Post
+#: prints the postage indicium here, so the renderer always reserves
+#: the box (and keeps the recipient block clear of it). Size ~ a real
+#: stamp: 25 mm x 33 mm.
+_STAMP_WIDTH_PX: Final[int] = round(25 * _PX_PER_MM)
+_STAMP_HEIGHT_PX: Final[int] = round(33 * _PX_PER_MM)
+_STAMP_BORDER_COLOR: Final[tuple[int, int, int]] = (190, 185, 175)
+_STAMP_LABEL_COLOR: Final[tuple[int, int, int]] = (170, 165, 155)
+_STAMP_FONT_SIZE: Final[int] = 26
+
 #: Text colour used for all printed content.
 _TEXT_COLOR: Final[tuple[int, int, int]] = (24, 24, 30)
 
@@ -200,7 +234,7 @@ def render_postcard(postcard: Postcard, output_path: Path) -> Path:
     return output_path
 
 
-def render_front(postcard: Postcard) -> Image.Image:
+def render_front(postcard: Postcard, *, guides: bool = False) -> Image.Image:
     """Return a Pillow image of the front of ``postcard``.
 
     When ``postcard.picture`` is set, the embedded JPEG bytes are
@@ -208,38 +242,80 @@ def render_front(postcard: Postcard) -> Image.Image:
     image pipeline already emits 1500 x 1062, so this is a no-op
     resize). When ``postcard.picture`` is ``None``, a coloured
     gradient placeholder is returned with a "Text only" caption.
+
+    ``guides=True`` overlays the WYSIWYG print guides — the 3 mm bleed
+    line and the inner safe area — so the interactive app can show the
+    user exactly what Swiss Post trims. The guides are off by default
+    so the rendered output stays a clean, printable image.
     """
     canvas = Image.new("RGB", (RENDER_WIDTH, RENDER_HEIGHT), (255, 255, 255))
     if postcard.picture is None:
-        return _render_placeholder_front(canvas)
-    try:
-        picture: Image.Image = Image.open(io.BytesIO(postcard.picture))
-        picture.load()
-    except (UnidentifiedImageError, OSError) as exc:
-        raise RenderError(f"cannot decode postcard picture: {exc}") from exc
-    if picture.mode != "RGB":
-        picture = picture.convert("RGB")
-    if picture.size != (RENDER_WIDTH, RENDER_HEIGHT):
-        picture = picture.resize((RENDER_WIDTH, RENDER_HEIGHT), Image.Resampling.LANCZOS)
-    canvas.paste(picture, (0, 0))
+        _render_placeholder_front(canvas)
+    else:
+        try:
+            picture: Image.Image = Image.open(io.BytesIO(postcard.picture))
+            picture.load()
+        except (UnidentifiedImageError, OSError) as exc:
+            raise RenderError(f"cannot decode postcard picture: {exc}") from exc
+        if picture.mode != "RGB":
+            picture = picture.convert("RGB")
+        if picture.size != (RENDER_WIDTH, RENDER_HEIGHT):
+            picture = picture.resize((RENDER_WIDTH, RENDER_HEIGHT), Image.Resampling.LANCZOS)
+        canvas.paste(picture, (0, 0))
+    if guides:
+        _draw_print_guides(ImageDraw.Draw(canvas))
     return canvas
 
 
-def render_back(postcard: Postcard) -> Image.Image:
+def render_back(postcard: Postcard, *, guides: bool = False) -> Image.Image:
     """Return a Pillow image of the back of ``postcard``.
 
     The back panel shows the message on the left half and the
-    recipient + sender addresses on the right half. When the
-    message is empty the left half renders as a faint placeholder
-    so the user can tell at a glance that the card would be
-    address-only.
+    recipient + sender addresses on the right half, with the postage /
+    franking box reserved in the top-right corner exactly where Swiss
+    Post prints the indicium. When the message is empty the left half
+    renders as a faint placeholder so the user can tell at a glance
+    that the card would be address-only.
+
+    ``guides=True`` overlays the WYSIWYG print guides — the 3 mm bleed
+    line, the inner safe area, and the recipient address-zone outline —
+    so the interactive app can show the user where each element lands.
     """
     canvas = Image.new("RGB", (RENDER_WIDTH, RENDER_HEIGHT), _BACK_BG_COLOR)
     draw = ImageDraw.Draw(canvas)
     _draw_panel_split(draw)
     _draw_message_block(draw, postcard)
+    _draw_stamp_box(draw)
     _draw_address_block(draw, postcard)
+    if guides:
+        _draw_print_guides(draw)
+        _draw_address_zone_guide(draw)
     return canvas
+
+
+def render_png_bytes(postcard: Postcard, *, side: str, guides: bool = False) -> bytes:
+    """Render one side of ``postcard`` to PNG bytes.
+
+    ``side`` is ``"front"`` or ``"back"``. This is the entry point the
+    interactive app uses to feed a live preview into an image element
+    without writing a temp file. ``guides`` toggles the print-guide
+    overlay (see :func:`render_front` / :func:`render_back`).
+
+    Raises
+    ------
+    RenderError
+        When ``side`` is not ``"front"`` or ``"back"``, or the picture
+        bytes cannot be decoded (front only).
+    """
+    if side == "front":
+        image = render_front(postcard, guides=guides)
+    elif side == "back":
+        image = render_back(postcard, guides=guides)
+    else:
+        raise RenderError(f"unknown side {side!r}; expected 'front' or 'back'")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -358,9 +434,15 @@ def _draw_message_block(draw: ImageDraw.ImageDraw, postcard: Postcard) -> None:
 
 
 def _draw_address_block(draw: ImageDraw.ImageDraw, postcard: Postcard) -> None:
-    """Render the recipient + sender addresses on the right half."""
+    """Render the recipient + sender addresses on the right half.
+
+    The recipient block starts below the reserved stamp box (top-right
+    corner) so the printed address never collides with the franking
+    indicium.
+    """
     panel_x0 = RENDER_WIDTH // 2 + _BACK_PADDING
-    panel_y0 = _BACK_PADDING
+    # Clear the stamp box reserved in the top-right corner.
+    panel_y0 = _BACK_PADDING + _STAMP_HEIGHT_PX + _BACK_PADDING // 2
     panel_x1 = RENDER_WIDTH - _BACK_PADDING
     panel_width = panel_x1 - panel_x0
 
@@ -446,6 +528,88 @@ def _draw_text_lines(
             draw.text((x, cursor_y), sub, fill=fill, font=font)
             cursor_y += line_height
     return cursor_y
+
+
+# ---------------------------------------------------------------------------
+# Stamp box + print guides
+# ---------------------------------------------------------------------------
+
+
+def _stamp_box() -> tuple[int, int, int, int]:
+    """Return the ``(x0, y0, x1, y1)`` of the reserved stamp box (top-right)."""
+    x1 = RENDER_WIDTH - _BACK_PADDING
+    y0 = _BACK_PADDING
+    x0 = x1 - _STAMP_WIDTH_PX
+    y1 = y0 + _STAMP_HEIGHT_PX
+    return (x0, y0, x1, y1)
+
+
+def _draw_stamp_box(draw: ImageDraw.ImageDraw) -> None:
+    """Draw the postage / franking box in the top-right corner of the back."""
+    x0, y0, x1, y1 = _stamp_box()
+    # Dashed rounded border so it reads as "place stamp here" rather
+    # than printed content.
+    _draw_dashed_rect(draw, (x0, y0, x1, y1), color=_STAMP_BORDER_COLOR, width=3, dash=18)
+    font = _load_font(_STAMP_FONT_SIZE)
+    for i, label in enumerate(("Postage", "stamp")):
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw = int(bbox[2] - bbox[0])
+        tx = x0 + (_STAMP_WIDTH_PX - tw) // 2
+        ty = y0 + _STAMP_HEIGHT_PX // 2 - _STAMP_FONT_SIZE + i * (_STAMP_FONT_SIZE + 4)
+        draw.text((tx, ty), label, fill=_STAMP_LABEL_COLOR, font=font)
+
+
+def _draw_print_guides(draw: ImageDraw.ImageDraw) -> None:
+    """Overlay the 3 mm bleed line and the inner safe area.
+
+    Drawn on top of the rendered side so the user sees exactly what
+    Swiss Post trims: everything outside the bleed line is cut, and
+    content should stay inside the safe area.
+    """
+    b = _BLEED_PX
+    # Bleed / cut line (solid cyan rectangle inset by the bleed).
+    draw.rectangle(
+        (b, b, RENDER_WIDTH - 1 - b, RENDER_HEIGHT - 1 - b),
+        outline=_GUIDE_COLOR,
+        width=3,
+    )
+    # Safe area (dashed green rectangle, a further bleed-width inset).
+    s = b * 2
+    _draw_dashed_rect(
+        draw,
+        (s, s, RENDER_WIDTH - 1 - s, RENDER_HEIGHT - 1 - s),
+        color=_SAFE_AREA_COLOR,
+        width=2,
+        dash=24,
+    )
+
+
+def _draw_address_zone_guide(draw: ImageDraw.ImageDraw) -> None:
+    """Outline the recipient address zone (right half, below the stamp)."""
+    x0 = RENDER_WIDTH // 2 + _BACK_PADDING // 2
+    y0 = _BACK_PADDING + _STAMP_HEIGHT_PX + _BACK_PADDING // 2
+    x1 = RENDER_WIDTH - _BACK_PADDING // 2
+    y1 = RENDER_HEIGHT - _BACK_PADDING // 2
+    _draw_dashed_rect(draw, (x0, y0, x1, y1), color=_GUIDE_COLOR, width=2, dash=20)
+
+
+def _draw_dashed_rect(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    *,
+    color: tuple[int, int, int],
+    width: int,
+    dash: int,
+) -> None:
+    """Draw a dashed rectangle outline (Pillow has no native dashed stroke)."""
+    x0, y0, x1, y1 = box
+    gap = dash
+    for x in range(x0, x1, dash + gap):
+        draw.line([(x, y0), (min(x + dash, x1), y0)], fill=color, width=width)
+        draw.line([(x, y1), (min(x + dash, x1), y1)], fill=color, width=width)
+    for y in range(y0, y1, dash + gap):
+        draw.line([(x0, y), (x0, min(y + dash, y1))], fill=color, width=width)
+        draw.line([(x1, y), (x1, min(y + dash, y1))], fill=color, width=width)
 
 
 # ---------------------------------------------------------------------------
@@ -579,5 +743,6 @@ __all__ = [
     "RenderError",
     "render_back",
     "render_front",
+    "render_png_bytes",
     "render_postcard",
 ]
