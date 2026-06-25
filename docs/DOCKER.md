@@ -62,19 +62,21 @@ docker run --rm -it postcards:dev status
 docker run --rm -it postcards:dev quota
 ```
 
-The base image ships the core CLI only — it does NOT bundle
-the optional `postcards[gui]` extra. The TUI is text-only
-and runs over a TTY; if you want `postcards tui` inside the
-container, build a derived image:
+The base image ships the core CLI only — it does NOT bundle the
+optional `postcards[app]` extra (NiceGUI). The interactive web app is
+best run on a host with `uv` (see [`INSTALL.md`](INSTALL.md)); the image
+is intended for headless CLI / batch / scheduling use. If you do want
+the app in a container, build a derived image and publish its port:
 
 ```dockerfile
 FROM postcards:dev
 USER root
-RUN pip install --no-cache-dir 'postcards[gui]==3.0.0'
+RUN pip install --no-cache-dir 'postcards[app]==4.0.0'
 USER postcards
 ```
 
-…and run it with a TTY: `docker run --rm -it your-image tui`.
+…and run it with the port mapped:
+`docker run --rm -p 8080:8080 your-image app --host 0.0.0.0 --no-browser`.
 
 ## Mounting a config file
 

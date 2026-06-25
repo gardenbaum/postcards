@@ -42,6 +42,7 @@ from postcards.render.postcard_renderer import (
     RenderError,
     render_back,
     render_front,
+    render_png_bytes,
     render_postcard,
 )
 
@@ -49,5 +50,6 @@ __all__ = [
     "RenderError",
     "render_back",
     "render_front",
+    "render_png_bytes",
     "render_postcard",
 ]
