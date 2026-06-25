@@ -225,50 +225,46 @@ def test_no_pyproject_drift_field_removed() -> None:
     assert "version" not in project
 
 
-def test_gui_extra_declares_textual() -> None:
-    """``postcards[gui]`` extra is wired in ``pyproject.toml``.
+def test_app_extra_declares_nicegui() -> None:
+    """``postcards[app]`` extra is wired in ``pyproject.toml``.
 
-    The TUI is opt-in: the ``gui`` extra pulls in
-    ``textual`` so users who only use the CLI do not have
-    to install the TUI's deps. This test pins the contract
-    so a future refactor that splits the extras cannot
-    silently drop ``textual``.
+    The WYSIWYG web app is opt-in: the ``app`` extra pulls in
+    ``nicegui`` so users who only use the CLI do not have to
+    install the app's (heavier) web deps. This test pins the
+    contract so a future refactor that splits the extras cannot
+    silently drop ``nicegui``.
     """
     project = _read_pyproject()["project"]
     optional = project.get("optional-dependencies", {})
     assert isinstance(optional, dict)
-    assert "gui" in optional, "missing [gui] extra in optional-dependencies"
-    gui_deps = optional["gui"]
-    assert any(dep.startswith("textual") for dep in gui_deps), (
-        f"[gui] extra must include textual; got {gui_deps!r}"
+    assert "app" in optional, "missing [app] extra in optional-dependencies"
+    app_deps = optional["app"]
+    assert any(dep.startswith("nicegui") for dep in app_deps), (
+        f"[app] extra must include nicegui; got {app_deps!r}"
     )
 
 
-def test_tui_package_wires_to_textual() -> None:
-    """The ``postcards.tui`` package imports cleanly.
+def test_web_service_imports_without_nicegui() -> None:
+    """The service layer imports without the optional ``app`` extra.
 
-    ``postcards.tui`` is the only consumer of the ``gui``
-    extra. If the package is renamed or moved, the test
-    flags the breakage before the user hits it at runtime.
-    The package's lazy import of :mod:`textual` (inside
-    :func:`postcards.tui.app.run_tui`) means this import
-    succeeds without the extra installed.
+    :mod:`postcards.web.service` is network- and UI-framework-free, so
+    it must import on a core install (the UI lives in
+    :mod:`postcards.web.app`, which is the only consumer of NiceGUI).
     """
-    from postcards import tui
+    from postcards.web import service
 
-    assert hasattr(tui, "PostcardsApp")
-    assert hasattr(tui, "run_tui")
+    assert hasattr(service, "render_preview")
+    assert hasattr(service, "send_draft")
 
 
-def test_tui_subcommand_is_registered_in_app() -> None:
-    """``postcards tui`` is registered as a Typer subcommand.
+def test_app_subcommand_is_registered_in_app() -> None:
+    """``postcards app`` is registered as a Typer subcommand.
 
-    Mirrors the runtime contract documented in
-    ``docs/TUI.md`` and the README: typing ``postcards tui``
-    on the command line should open the TUI (or print a
-    clear install-prompt if the ``gui`` extra is missing).
+    Mirrors the runtime contract documented in the README: typing
+    ``postcards app`` launches the web app (or prints a clear
+    install-prompt if the ``app`` extra is missing).
     """
     from postcards.cli.app import app as typer_app
 
     names = {c.name for c in typer_app.registered_commands}
-    assert "tui" in names
+    assert "app" in names

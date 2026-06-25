@@ -32,7 +32,7 @@ Scope
 
 * Each top-level subcommand (``send``, ``preview``, ``generate``,
   ``config``, ``accounts``, ``quota``, ``status``, ``encrypt``,
-  ``decrypt``, ``legacy``) renders ``--help`` with exit 0.
+  ``decrypt``, ``app``) renders ``--help`` with exit 0.
 * Sub-commands (``config init``, ``accounts add``) reach the
   business logic.
 * Error paths surface :class:`postcards.cli.errors.CLIError`
@@ -198,7 +198,7 @@ def test_postcards_help_lists_subcommands(runner: CliRunner) -> None:
         "status",
         "encrypt",
         "decrypt",
-        "legacy",
+        "app",
     ):
         assert sub in output, f"missing subcommand {sub!r} in help:\n{result.output}"
 
@@ -1082,24 +1082,15 @@ def test_decrypt_with_wrong_key_produces_garbage(
 
 
 # ---------------------------------------------------------------------------
-# legacy
+# app (web)
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_help_lists_subcommand(runner: CliRunner) -> None:
-    """``legacy --help`` mentions the ``run`` subcommand."""
-    result = _invoke("legacy", "--help")
+def test_app_help_mentions_extra(runner: CliRunner) -> None:
+    """``app --help`` documents the optional install extra."""
+    result = _invoke("app", "--help")
     assert result.exit_code == 0
-    assert "run" in result.output
-
-
-def test_legacy_run_help_mentions_postcards(runner: CliRunner) -> None:
-    """``legacy run --help`` shows the escape-hatch description."""
-    result = _invoke("legacy", "run", "--help")
-    assert result.exit_code == 0
-    # The exact text changes between Typer versions; assert
-    # the description mentions the legacy module by name.
-    assert "legacy" in result.output.lower()
+    assert "app" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------

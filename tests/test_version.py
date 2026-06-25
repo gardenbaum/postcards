@@ -12,6 +12,11 @@ plugin and an integration test that exercises a MOCKED Swiss Post backend
 M6: bumped to 3.0.0 — the post-M0 modernization series (Typer CLI,
 vendored postcard-creator shim, plugin registry, address book, batch,
 schedule, retries / quota / keyring / doctor).
+
+4.0.0: the interactive WYSIWYG web app (``postcards app``, NiceGUI) with
+a live Front/Back print-accurate preview becomes the primary UX; the
+Textual TUI and the ``postcards legacy`` argparse escape-hatch are
+removed (breaking → major bump).
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import importlib.metadata
 
 import postcards
 
-EXPECTED_VERSION = "3.0.0"
+EXPECTED_VERSION = "4.0.0"
 
 
 def test_package_version_constant() -> None:

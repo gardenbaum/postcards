@@ -20,6 +20,7 @@ Subcommands
 
 The command modules are split by domain:
 
+* :mod:`.commands.app`      — ``postcards app`` (interactive WYSIWYG web app)
 * :mod:`.commands.send`     — ``postcards send``
 * :mod:`.commands.batch`    — ``postcards batch`` (M4)
 * :mod:`.commands.preview`  — ``postcards preview``
@@ -34,10 +35,6 @@ The command modules are split by domain:
 * :mod:`.commands.quota`    — ``postcards quota``
 * :mod:`.commands.status`   — ``postcards status``
 * :mod:`.commands.credentials` — ``postcards encrypt`` / ``postcards decrypt``
-* :mod:`.commands.tui`      — ``postcards tui`` (M6; optional local TUI)
-* :mod:`.commands.legacy`   — ``postcards legacy ...`` (escape hatch for
-  the legacy plugin subcommands; see the module docstring for the
-  reasoning)
 """
 
 from __future__ import annotations
@@ -136,7 +133,6 @@ from postcards.cli.commands import (  # noqa: E402, F401  (import-after-callback
     doctor,
     generate,
     keyring,
-    legacy,
     plugins,
     preview,
     quota,
@@ -144,7 +140,9 @@ from postcards.cli.commands import (  # noqa: E402, F401  (import-after-callback
     send,
     status,
     templates,
-    tui,
+)
+from postcards.cli.commands import (  # noqa: E402, F401  (aliased: module name shadows the Typer ``app``)
+    app as app_command,
 )
 
 __all__ = ["app"]

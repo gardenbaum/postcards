@@ -11,6 +11,45 @@ Releases follow the calendar-versioning rule described in
 release section verbatim, and the version bump in
 `postcards/__init__.py` is the only required code change.
 
+## [4.0.0] — 2026-06-25
+
+The release reorients `postcards` around a visual, interactive
+front-end. A postcard is a visual object, so the headline feature is
+*seeing the card before you send it*.
+
+### Added
+
+- **`postcards app` — interactive WYSIWYG web app (NiceGUI).**
+  A single-page app with a **live, print-accurate preview** of both
+  sides: the Front (A6 landscape, 3 mm bleed, safe area) and the Back
+  (message, recipient / sender address, postage box) redraw as you type.
+  Upload/clear a picture, edit the message and addresses, toggle print
+  guides, pick the Mock (default, nothing sent) or SwissID (live)
+  backend, keep Dry-run on to validate without consuming quota, then
+  send. Opt-in via the new `app` extra (`uv pip install '.[app]'`); the
+  command prints an actionable install hint when NiceGUI is missing.
+  See [`docs/APP.md`](docs/APP.md).
+  - **`postcards.web.service`** — a network- and UI-free core (draft →
+    postcard, image processing, live PNG preview, validation, send via
+    any `Backend`). 100 % unit-tested against the mock backend.
+  - **`postcards.web.app`** — the thin NiceGUI UI layer, plus
+    `python -m postcards.web`. Build is smoke-tested headlessly via
+    NiceGUI's user simulation (no browser, no network).
+  - **`postcards[app]` extra** (`nicegui`) and the renderer now draws
+    WYSIWYG guides (3 mm bleed, safe area, stamp box, address zone) and
+    exposes `render_png_bytes()`.
+
+### Removed
+
+- **The Textual TUI** (`postcards tui`, the `postcards.tui` package, the
+  `gui` / `textual` extra, `docs/TUI.md`). Its "preview" only opened a
+  temp PNG externally — no real WYSIWYG — so the web app replaces it.
+- **The `postcards legacy` argparse escape-hatch command.** (The
+  internal `postcards.postcards` engine that `send` / `batch` / `accounts`
+  reuse is unchanged; only the user-facing argparse passthrough is gone.)
+
+These removals are breaking, hence the major version bump.
+
 ## [Unreleased]
 
 ### Added
