@@ -34,6 +34,7 @@ The command modules are split by domain:
 * :mod:`.commands.quota`    — ``postcards quota``
 * :mod:`.commands.status`   — ``postcards status``
 * :mod:`.commands.credentials` — ``postcards encrypt`` / ``postcards decrypt``
+* :mod:`.commands.tui`      — ``postcards tui`` (M6; optional local TUI)
 * :mod:`.commands.legacy`   — ``postcards legacy ...`` (escape hatch for
   the legacy plugin subcommands; see the module docstring for the
   reasoning)
@@ -143,6 +144,7 @@ from postcards.cli.commands import (  # noqa: E402, F401  (import-after-callback
     send,
     status,
     templates,
+    tui,
 )
 
 __all__ = ["app"]

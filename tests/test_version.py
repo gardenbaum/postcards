@@ -8,6 +8,10 @@ version string), so it does not require the legacy runtime dependencies
 In M1+ this file will grow into the real test suite: unit tests for each
 plugin and an integration test that exercises a MOCKED Swiss Post backend
 (see docs/CONSTITUTION.md invariant 1).
+
+M6: bumped to 3.0.0 — the post-M0 modernization series (Typer CLI,
+vendored postcard-creator shim, plugin registry, address book, batch,
+schedule, retries / quota / keyring / doctor).
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ import importlib.metadata
 
 import postcards
 
-EXPECTED_VERSION = "2.2"
+EXPECTED_VERSION = "3.0.0"
 
 
 def test_package_version_constant() -> None:

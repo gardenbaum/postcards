@@ -5,9 +5,144 @@ is loosely based on [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to [Semantic Versioning](https://semver.org/) as far
 as is practical for a wrapper around an unofficial upstream API.
 
+Releases follow the calendar-versioning rule described in
+[`docs/RELEASE.md`](docs/RELEASE.md). Cutting a release is a single
+`git tag` step; the `[Unreleased]` block below becomes the new
+release section verbatim, and the version bump in
+`postcards/__init__.py` is the only required code change.
+
 ## [Unreleased]
 
 ### Added
+
+- **M6 — optional local TUI.**
+  The `postcards tui` subcommand launches a small Textual-
+  based terminal UI for composing, previewing, and (with an
+  explicit confirmation step) sending a postcard. The TUI is
+  opt-in via the new `gui` extra: `pip install 'postcards[gui]'`.
+  Without the extra, `postcards tui` exits with a clear
+  "install `postcards[gui]`" message — the core CLI keeps
+  working. See [`docs/TUI.md`](docs/TUI.md) for the user
+  guide.
+
+  - **`postcards[gui]` extra.** `pyproject.toml` adds an
+    optional `gui = ["textual>=0.85"]` dep set. `textual`
+    pulls in `rich` and a small set of well-behaved
+    transitive deps. No new runtime dep is forced on users
+    who never run the TUI.
+  - **`postcards tui` command.** New Typer subcommand in
+    [`postcards/cli/commands/tui.py`](postcards/cli/commands/tui.py).
+    Flags: `--config / -c` (config file), `--accounts-file /
+    -a`, `--send` (disable the default dry-run). Imports
+    :mod:`textual` lazily so a missing dep surfaces as an
+    actionable `pip install` error.
+  - **TUI package at [`postcards/tui/`](postcards/tui/).**
+    Four modules: `state.py` (the `ComposeForm` value
+    object), `app.py` (`PostcardsApp` — the bridge between
+    the form and the existing CLI pipeline), `screens.py`
+    (the six screens: MainMenu, Compose, AddressBook,
+    TemplateBook, Preview, SendConfirm, Help). Each screen
+    is a thin wrapper around a dynamic `textual.screen.Screen`
+    subclass so the TUI tests can drive them through
+    `textual.pilot.Pilot` without a real terminal.
+  - **Reuses the existing pipeline.** The TUI does not
+    duplicate any logic: `PostcardsApp.build_in_memory_config`
+    builds the `recipient` / `sender` dicts the legacy
+    `do_command_send` flow expects (mirroring
+    `_address_to_legacy_dict` from `postcards/cli/commands/send.py`),
+    `PostcardsApp.build_send_namespace` builds the same
+    `argparse.Namespace` shape `do_command_send` accepts, and
+    `PostcardsApp.render_preview` delegates to
+    `postcards.render.render_postcard`. The TUI never calls
+    the network directly.
+  - **Dry-run by default.** The "Send real" button stays
+    disabled until the user un-checks the dry-run box AND
+    types `YES` (uppercase) at the confirm modal. The
+    safety model mirrors the CLI's `--dry-run` flag while
+    keeping the user in the loop.
+  - **Read-only address book + template browser.** The TUI
+    shows the user's address book and templates but never
+    writes to them — mutations happen via the existing
+    `postcards addresses add ...` and
+    `postcards templates add ...` commands, where the
+    on-disk format and validation live in one place.
+  - **Tests** (`tests/test_tui.py`, 43 tests). State tests
+    for `ComposeForm`; app-glue tests for
+    `PostcardsApp.{build_in_memory_config, build_send_namespace,
+    render_preview, _render_template_message}`; Pilot-driven
+    screen tests for every screen (mount + button + input
+    events); end-to-end Compose → Send-dry-run flow with the
+    same `Token.has_valid_credentials` /
+    `PostcardCreatorBase.has_free_postcard` /
+    `PostcardCreatorBase.send_free_card` triple the existing
+    CLI integration tests use.
+  - **User guide** at [`docs/TUI.md`](docs/TUI.md): why a
+    TUI (vs web UI), install, screen-by-screen walkthrough,
+    safety model, keyboard reference, troubleshooting.
+
+- **M6 — packaging, distribution, docs overhaul.**
+  M6 closes the distribution surface: the package is publish-ready
+  for PyPI (`pipx install .` works end-to-end), the README is a
+  complete user guide, and a Dockerfile ships the CLI in a slim
+  container. See [`docs/INSTALL.md`](docs/INSTALL.md),
+  [`docs/DOCKER.md`](docs/DOCKER.md), and
+  [`docs/RELEASE.md`](docs/RELEASE.md) for the new surfaces.
+
+  - **Version 3.0.0.** Bumped from 2.2. The 3.x series reflects the
+    full modernization that landed across M0–M5 (Typer CLI,
+    vendored postcard-creator shim, plugin registry, address book,
+    batch, schedule, retries / quota / keyring / doctor). The
+    canonical version lives in `postcards/__init__.py` as
+    `__version__`; hatchling reads it via `[tool.hatch.version]`
+    so the wheel metadata and the runtime `__version__` cannot
+    drift apart.
+
+  - **`pyproject.toml` metadata.** New classifiers (Development
+    Status 4-Beta, Intended Audience Developers, CPython, OS
+    Independent + Linux/macOS/Windows, Topic Utilities,
+    Environment Console); project URLs for Documentation, Issues,
+    Changelog (pointing at `gardenbaum/postcards`); the original
+    `abertschi/postcards` is preserved as `Upstream`. README is
+    declared as the long description (`text/markdown`).
+
+  - **`pipx install .` is the recommended install path.** Verified
+    on Python 3.13: installs cleanly into an isolated venv and
+    exposes all five console scripts (`postcards`,
+    `postcards-folder`, `postcards-yaml`, `postcards-pexels`,
+    `postcards-chuck-norris`). `pip install .` from a checkout
+    also works.
+
+  - **Docker image.** New `Dockerfile` at the repo root builds a
+    slim `python:3.13-slim` image that ships the CLI. The default
+    `CMD` is `["postcards", "--help"]`; override with
+    `docker run --rm -it postcards:<tag> send ...` or mount a
+    config file via `-v $PWD/config.json:/home/postcards/config.json:ro`.
+    See [`docs/DOCKER.md`](docs/DOCKER.md) for the full recipe,
+    including running `postcards doctor` in a container to
+    diagnose a host config without installing the package.
+
+  - **Docs.** Full README overhaul (`README.md`) covering
+    install, SwissID setup, send / preview / quota, plugins
+    (folder, yaml, pexels, unsplash, url, local, chuck_norris),
+    batch, schedule, keyring, troubleshooting, FAQ. New docs:
+    [`docs/INSTALL.md`](docs/INSTALL.md) (per-OS install paths
+    and `pipx` recipe), [`docs/DOCKER.md`](docs/DOCKER.md)
+    (image build, run, and mount patterns),
+    [`docs/RELEASE.md`](docs/RELEASE.md) (PyPI publish workflow
+    with `twine` + trusted publishing, GitHub release checklist,
+    and a per-milestone retrospective template). The legacy
+    `--help` excerpt in the README is replaced by a current
+    Typer-rendered command list.
+
+  - **Tests for the packaging surface.**
+    `tests/test_packaging.py` covers wheel metadata (version,
+    classifiers, URLs, requires-python, entry-point group),
+    `pip`-style `install_requires` resolution, and the
+    `postcards.plugins` entry-point group enumerates every
+    in-tree plugin. `tests/test_dockerfile.py` parses the
+    `Dockerfile` and asserts the base image, the install layer,
+    and the default CMD without requiring Docker to be
+    installed locally.
 
 - **M5 — retries, quota awareness, structured logging.**
   The CLI now handles flaky networks, the daily
