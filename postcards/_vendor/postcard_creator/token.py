@@ -64,6 +64,28 @@ def _base64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
+def extract_authorization_code(pasted: str) -> str:
+    """Pull the OAuth ``code`` out of a pasted redirect URL or raw code.
+
+    The browser-assisted login ends at a ``ch.post.pcc://auth/...?code=...``
+    redirect the browser cannot open; the user copies that URL (or just the
+    code) and pastes it. Accepts either form. Raises
+    :class:`PostcardCreatorException` when no code can be found.
+    """
+    text = (pasted or "").strip()
+    if not text:
+        raise PostcardCreatorException("no authorization code provided")
+    if "code=" in text:
+        # Custom-scheme URLs parse fine: urlparse keeps the query string.
+        query = parse_qs(urlparse(text).query)
+        codes = query.get("code")
+        if codes and codes[0]:
+            return codes[0]
+        raise PostcardCreatorException(f"could not find a 'code' parameter in: {text}")
+    # Assume the user pasted the bare code.
+    return text
+
+
 class Token:
     """Holds an authenticated Swiss Post access token.
 
@@ -163,6 +185,38 @@ class Token:
             raise PostcardCreatorException(
                 f"token response missing fields: {access_token}"
             ) from exc
+
+    # ------------------------------------------------------------------
+    # Browser-assisted login (works with any SwissID 2FA, incl. push/passkey)
+    # ------------------------------------------------------------------
+
+    def build_authorize_url(self) -> tuple[str, str]:
+        """Return ``(authorize_url, code_verifier)`` for a browser login.
+
+        The user opens ``authorize_url`` in a normal browser, completes the
+        SwissID login + 2FA there, and the browser ends at a
+        ``ch.post.pcc://auth/...?code=...`` redirect. Feed that code and the
+        returned ``code_verifier`` back into :meth:`exchange_code`.
+        """
+        verifier, challenge = self._pkce()
+        url = "https://pccweb.api.post.ch/OAuth/authorization?" + self._authorize_query(challenge)
+        return url, verifier
+
+    def exchange_code(self, code: str, code_verifier: str, *, session: Any = None) -> None:
+        """Exchange an authorization ``code`` (+ its PKCE verifier) for a token.
+
+        Stores the access token on ``self``. Raises
+        :class:`PostcardCreatorException` on failure.
+        """
+        body = self._exchange_code_for_token(session or self._create_session(), code, code_verifier)
+        try:
+            self.token = body["access_token"]
+            self.token_type = body.get("token_type")
+            self.token_expires_in = body.get("expires_in")
+            self.token_fetched_at = datetime.datetime.now()
+            self.token_implementation = "swissid-browser"
+        except Exception as exc:
+            raise PostcardCreatorException(f"token response missing fields: {body}") from exc
 
     # ------------------------------------------------------------------
     # Internals

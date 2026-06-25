@@ -268,6 +268,35 @@ def check_login(backend: PostcardBackend, username: str, password: str) -> Login
     )
 
 
+def begin_browser_login() -> tuple[str, str]:
+    """Start a browser-assisted SwissID login (for accounts with 2FA).
+
+    Returns ``(authorize_url, code_verifier)``. Network-free — it only builds
+    the OAuth authorize URL + PKCE verifier. The caller shows the URL, the
+    user logs in in a browser (completing push / passkey / SMS 2FA), and the
+    pasted code goes to :func:`complete_browser_login` with this verifier.
+    """
+    from postcards.backend import SwissIdConsumerBackend
+
+    return SwissIdConsumerBackend().begin_browser_login()
+
+
+def complete_browser_login(
+    code_or_url: str, verifier: str, *, session: Any = None
+) -> PostcardBackend:
+    """Exchange the pasted code for a token; return an authenticated backend.
+
+    Raises :class:`~postcards.backend.exceptions.AuthenticationError` on
+    failure (bad / expired code). The returned backend is ready to
+    :func:`send_draft` (pass it with no username/password).
+    """
+    from postcards.backend import SwissIdConsumerBackend
+
+    backend = SwissIdConsumerBackend()
+    backend.complete_browser_login(code_or_url, verifier, session=session)
+    return backend
+
+
 def send_draft(
     draft: PostcardDraft,
     *,
@@ -342,8 +371,10 @@ __all__ = [
     "LoginCheck",
     "PostcardDraft",
     "SendOutcome",
+    "begin_browser_login",
     "build_postcard",
     "check_login",
+    "complete_browser_login",
     "process_image",
     "render_preview",
     "resolve_auth",

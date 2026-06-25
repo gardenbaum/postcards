@@ -55,11 +55,20 @@ front-end. A postcard is a visual object, so the headline feature is
   performs the real flow and maps failures to `AuthenticationError`.
   Every network method takes an injectable session so the suite drives
   the full flow against a fake session — the live API is **never**
-  called in tests/CI. **Caveats:** like the upstream wrapper, this flow
-  does **not** support 2-factor auth (works only for SwissID accounts
-  that log in with e-mail + password alone; the account must have used
-  the official app once), and the unofficial endpoints can drift; a real
-  send remains the user's manual, interactive step.
+  called in tests/CI.
+  - **Browser-assisted login for 2FA accounts.** Because SwissID's
+    second factor (push / passkey / SMS) cannot be automated headlessly,
+    the app/backend can hand the login to the user's browser: open the
+    SwissID authorize URL, complete 2FA there, then paste the returned
+    `ch.post.pcc://…?code=…` back; the app exchanges it (PKCE) for a
+    token (`Token.build_authorize_url` / `exchange_code`,
+    `SwissIdConsumerBackend.begin_browser_login` /
+    `complete_browser_login`, `service.begin/complete_browser_login`).
+    Direct e-mail + password still works for accounts without 2FA.
+  - **Caveats:** the unofficial endpoints can drift server-side; a real
+    send remains the user's manual step. For unattended/business use,
+    Swiss Post's official PostCard Creator API (OAuth2 + contract) is the
+    robust route (not wired in here).
 
 ### Removed
 

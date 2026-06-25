@@ -90,40 +90,50 @@ Toggle **Print guides** off to see the card without the overlay.
 
 - **Backend = Mock** (default): nothing is sent. Every "send" is recorded
   in-memory — ideal for trying the app out. Safe and offline.
-- **Backend = SwissID** (live): reaches the real Swiss Post service. Enter
-  your SwissID e-mail and password; they are used only for that send and
-  are never stored or logged by the app.
+- **Backend = SwissID** (live): reaches the real Swiss Post service. Two
+  ways to authenticate (see below) — **browser login** (works with 2FA)
+  or direct **e-mail + password** (no-2FA accounts only).
 - **Dry-run** (on by default): validates the card with the selected
   backend *without* actually mailing it. With the live backend this
   checks the card upstream **without consuming your daily quota**. Turn it
   off to mail a real postcard.
 
-### SwissID, 2FA & quota — read this before a live send
+### Logging in to SwissID
 
 A live send performs the **real** SwissID OAuth + SAML login and posts
-the card to the Swiss Post Postcard Creator mobile API — it is no longer
-a stub. The same flow backs the CLI `postcards send`.
+the card to the Swiss Post Postcard Creator mobile API. The same engine
+backs the CLI `postcards send`.
+
+**Browser login (recommended — works with any 2FA: push / passkey / SMS).**
+Because SwissID's 2-factor step cannot be automated headlessly, the app
+hands the login to your real browser:
+
+1. Click **1 · Open SwissID login** — a new tab opens the SwissID login.
+2. Log in and **approve the push in your SwissID app** (or passkey / SMS).
+3. The browser ends on a page it *can't* open — an address starting
+   `ch.post.pcc://…` containing `?code=…`. **Copy that whole address**
+   (or just the `code`) and paste it into the app.
+4. Click **2 · Complete login** — the app exchanges the code for a token
+   (PKCE) and is then authenticated. Send as usual.
+
+**Direct e-mail + password** (the fields + *Check login & quota*) works
+**only for accounts without 2FA** — the upstream consumer flow never
+supported an interactive second factor
+([`postcard_creator_wrapper` #40](https://github.com/abertschi/postcard_creator_wrapper/issues/40)).
+If your account enforces 2FA, use the browser login above.
+
+Other notes:
 
 - The free tier is **one card per day** per SwissID account.
-- **Two-factor authentication is NOT supported.** This is a limitation of
-  the unofficial consumer flow (upstream
-  [`postcard_creator_wrapper` #40](https://github.com/abertschi/postcard_creator_wrapper/issues/40)):
-  the login performs only the e-mail + password + device-fingerprint
-  steps. It therefore works **only for SwissID accounts that can log in
-  with e-mail + password alone** (no SMS / passkey / push prompt). If your
-  account enforces a second factor, the login will fail — disable 2FA on
-  the account, or use the official business
-  [PostCard Creator API](https://developer.post.ch/en/technical-specifications-of-postcard-api)
-  instead (OAuth2 + contract; not wired in here).
 - **Prerequisite:** the account must have signed in to the official
   Postcard Creator app at least once to activate the free tier.
-- SwissID also uses **anomaly detection**; the unofficial endpoints can
-  change server-side, so a live send may break regardless of this app.
-  That fragility is exactly why the test suite / CI only use the mock
-  backend.
-- Credentials are read from the form for the single send only. For the
-  CLI, prefer environment variables or the OS keyring (see the README) —
-  never commit credentials.
+- The unofficial endpoints can change server-side, so a live send may
+  break regardless of this app — that fragility is why the test suite /
+  CI only use the mock backend. For unattended/business use, Swiss Post's
+  official [PostCard Creator API](https://developer.post.ch/en/technical-specifications-of-postcard-api)
+  (OAuth2 + contract) is the robust route (not wired in here).
+- Credentials are used for the single login only and never stored unless
+  you click *Save to keyring*; never commit credentials.
 
 ## How it fits together
 
