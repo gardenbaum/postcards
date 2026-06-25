@@ -86,9 +86,49 @@ $ postcards -v send --config config.json \
     --message "Happy coding!"
 
 # - Add more 'v' to increase verbosity, i.e. -vv
-# - Note: The -v / --verbose flag belongs to the root parser, add it after 'postcards' and before 'send'     
-    
+# - Note: the -v / --verbose flag belongs to the root parser, add it after 'postcards' and before 'send'
+
+# Send to a recipient from your persistent address book
+$ postcards addresses add alice \
+    --prename Alice --lastname Zuercher \
+    --street "Bahnhofstrasse 1" --zip-code 8000 --place Zurich
+
+$ postcards send --config config.json \
+    --to alice --picture pic.jpg --message "Happy coding"
+
+# Render a message from a reusable template
+$ postcards templates add greeting --body 'Hi $name, greetings from Zurich'
+
+$ postcards send --config config.json \
+    --to alice --picture pic.jpg \
+    --message-template greeting --var name=Alice
+
+# Send one card to every recipient in your address book
+$ postcards batch --to-all-recipients \
+    --picture pic.jpg --message "Happy coding!"
+
+# Send to a hand-picked list of names
+$ postcards batch --to-many alice,bob,charlie \
+    --picture pic.jpg --message "Hi"
+
+# Send from a CSV or YAML manifest with per-recipient overrides
+$ postcards batch --manifest ./birthdays.yaml
+
+# Queue a recurring weekly Monday postcard
+$ postcards schedule add \
+    --recurring weekly:mon \
+    --to alice \
+    --message "Monday motivation!" \
+    --username USER --password PASS
+
+# Run the scheduler once (cron-friendly; honour the 1-card/day quota)
+$ postcards schedule run --quiet
 ```
+
+See [docs/ADDRESS_BOOK.md](docs/ADDRESS_BOOK.md),
+[docs/BATCH.md](docs/BATCH.md) and [docs/SCHEDULE.md](docs/SCHEDULE.md)
+for the full guides to the address book, batch send, and
+scheduling commands.
 
 ## Plugins
 Postcards is designed in a plugin based approach. 

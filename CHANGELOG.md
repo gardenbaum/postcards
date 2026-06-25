@@ -9,6 +9,118 @@ as is practical for a wrapper around an unofficial upstream API.
 
 ### Added
 
+- **M4 — batch send + scheduling.** Multi-recipient
+  dispatch plus a local send queue with delayed and
+  recurring jobs:
+
+  - `postcards batch` — send one postcard to each of many
+    recipients. Recipient sources:
+
+    - `--to-many NAME1,NAME2,...` (inline list)
+    - `--to-all-recipients` (every recipient in the address
+      book)
+    - `--manifest PATH` (CSV or YAML; `.yaml`/`.yml`
+      → YAML, otherwise CSV)
+
+    Per-recipient overrides on a manifest row (`picture`,
+    `message`, `message_template`, `sender`, `var`) win over
+    the shared CLI flags. Per-recipient failures are
+    surfaced in a summary; `--stop-on-error` aborts on the
+    first failure. Reuses the same send plumbing as
+    `postcards send` so every input the latter accepts is
+    also accepted by `batch`.
+
+  - `postcards schedule {add,list,show,remove,retry,run}`
+    — manage the local send queue.
+
+    - `add` — queue a one-shot (`--at ISO-TIMESTAMP`) or
+      a recurring (`--recurring every:Nd` /
+      `--recurring weekly:mon[,tue,...]`) job.
+    - `list` / `show` / `remove` — local queue
+      introspection.
+    - `retry` — reset a `failed` job back to `pending`.
+    - `run` — dispatch every due job against the
+      configured backend. Quota-exhausted jobs are
+      rescheduled to the next UTC midnight; failing jobs
+      stay in the queue and surface in `last_error`.
+      Cron-friendly via `--quiet`.
+
+  New package `postcards.schedule/` with value-type
+  models (`ScheduledJob`, `JobStatus`, `RecurrenceRule`,
+  `ScheduleBook`), a `Clock` protocol with `SystemClock` +
+  `FakeClock` for testable time travel, atomic JSON
+  persistence under
+  `$XDG_DATA_HOME/postcards/schedule.json`, and a runner
+  that walks the book, logs into the backend, checks
+  quota, and dispatches via the modern `PostcardBackend`
+  protocol. The runner is unit-tested against
+  `MockBackend` + `FakeClock` — no live Swiss Post call,
+  no real time travel.
+
+  See `docs/BATCH.md` and `docs/SCHEDULE.md` for the
+  user-facing guides.
+
+  Tests: 73 schedule-model tests (recurrence parsing and
+  advance semantics, ScheduledJob value-type discipline,
+  ScheduleBook JSON round-trip, Clock / FakeClock);
+  15 schedule-storage tests (atomic write, missing-file,
+  schema validation); 18 schedule-runner tests
+  (one-shot, recurring every-N-days, weekly, quota
+  exhaustion, error paths, dry-run, multi-job walks,
+  value-type discipline, picture loading); 18 batch-CLI
+  integration tests; 21 schedule-CLI integration tests.
+  Local gate: ruff + ruff-format + mypy + 768/768 pytest
+  (up from 623 after M4 address book / templates).
+
+- **M4 — address book + message templates.** A persistent
+  per-user store under `$XDG_DATA_HOME/postcards/` (overridable
+  via `POSTCARDS_DATA_DIR`) holds named recipients / senders
+  and reusable message templates with `$name` / `${name}`
+  substitution. New command groups:
+
+  - `postcards addresses {add,list,show,update,remove}` —
+    manage the address book.
+  - `postcards templates {add,list,show,update,render,remove}`
+    — manage and render templates; `render` substitutes
+    `--var KEY=VALUE` pairs with strict missing-key
+    semantics.
+
+  `postcards send` gains three new options that pull from
+  these stores:
+
+  - `--to NAME` — recipient from the address book
+    (recipient category).
+  - `--sender NAME` — sender from the address book
+    (sender category).
+  - `--message-template NAME` — render a template with
+    `--var KEY=VALUE` substitutions (repeatable).
+
+  The new options are layered on top of the existing
+  config-file flow rather than replacing it: accounts still
+  come from `-c config.json`, and the recipient / sender /
+  message are resolved in-memory before delegating to
+  `Postcards.do_command_send`. A tiny refactor adds
+  optional `config_dict` / `accounts_dict` kwargs to
+  `do_command_send` so the on-disk path stays bit-identical
+  for existing callers.
+
+  New package `postcards.addressbook/` with value-type
+  models (`AddressBook`, `AddressBookEntry`,
+  `AddressCategory`, `MessageTemplate`, `TemplateBook`),
+  XDG-aware path resolution, atomic JSON persistence (sibling
+  temp file + `os.replace` + `fsync`), and a stdlib-based
+  template renderer.
+
+  See `docs/ADDRESS_BOOK.md` for the user-facing guide.
+
+  Tests: 105 unit tests across models, paths, storage, and
+  variable substitution; 48 CLI tests across the new command
+  groups; 13 integration tests that drive the full CLI
+  stack (Typer → `do_command_send` → mocked
+  `send_free_card`) with address-book and template-book
+  entries as inputs. Local gate: ruff + ruff-format + mypy +
+  623/623 pytest (up from 457 in M3).
+
 - **M0 — toolchain + CI + constitution.** Replaces `setup.py` with a
   modern `pyproject.toml` (PEP 621, hatchling build backend) targeting
   Python 3.12 and 3.13. Adds and configures `ruff` (lint + format),
