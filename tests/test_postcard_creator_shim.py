@@ -11,14 +11,14 @@ and its plugins rely on:
 * ``PostcardCreator`` accepting a ``Token`` whose ``.token`` attribute
   is non-``None`` and rejecting a ``Token`` without one.
 * ``Token`` exposes the URLs and headers the upstream class had.
-* Every network method (``fetch_token``, ``has_valid_credentials``,
-  ``send_free_card``, ``has_free_postcard``, ``get_quota``) raises
-  ``NotImplementedError`` — they are stubs; tests that need a live
-  flow monkey-patch the instance.
+* The mobile-API client (``get_quota``, ``has_free_postcard``,
+  ``send_free_card``) drives the documented request sequence against
+  an **injected fake session** — never the live network.
 
 These tests run on every supported Python version without hitting
-the network. The mocked-Swiss-Post integration test lives in
-``tests/test_send_integration.py``.
+the network. The full SwissID token flow is covered in
+``tests/test_swissid_token.py``; the mocked-Swiss-Post CLI integration
+test lives in ``tests/test_send_integration.py``.
 """
 
 from __future__ import annotations
@@ -153,15 +153,8 @@ def test_token_urls_match_upstream_endpoints() -> None:
     assert "User-Agent" in token.swissid_headers
 
 
-def test_token_has_valid_credentials_raises_not_implemented() -> None:
-    """``has_valid_credentials`` is a network call: the shim raises, never tries."""
-    token = Token()
-    with pytest.raises(NotImplementedError, match="shim"):
-        token.has_valid_credentials("user", "pass")
-
-
 def test_token_fetch_token_validates_args() -> None:
-    """``fetch_token`` validates args first, then raises on the network path."""
+    """``fetch_token`` validates args before touching the network."""
     token = Token()
     with pytest.raises(PostcardCreatorException, match="No username"):
         token.fetch_token(None, None)
@@ -170,31 +163,72 @@ def test_token_fetch_token_validates_args() -> None:
         token.fetch_token("u", "p", method="not-a-real-method")
 
 
-def test_token_fetch_token_raises_not_implemented_for_valid_args() -> None:
-    """With valid args the shim raises NotImplementedError instead of going to the network."""
+class _MobileResponse:
+    """Canned ``requests``-like response for the mobile-API fake session."""
+
+    def __init__(self, status: int = 200, payload: dict | None = None) -> None:
+        self.status_code = status
+        self._payload = payload or {}
+        self.text = ""
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _MobileSession:
+    """Fake session capturing mobile-API calls — no live network."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, dict]] = []
+
+    def request(self, method: str, url: str, **kwargs: object) -> _MobileResponse:
+        self.requests.append((method, url, dict(kwargs)))
+        if url.endswith("/user/quota"):
+            return _MobileResponse(
+                payload={"model": {"available": True, "quota": 1, "retentionDays": 1, "next": None}}
+            )
+        if url.endswith("/card/upload"):
+            return _MobileResponse(payload={"model": {"orderId": "ORD-1"}})
+        return _MobileResponse(payload={"model": {}})
+
+
+def test_mobile_client_quota_and_send_against_fake_session() -> None:
+    """The mobile client drives /user/quota and /card/upload over an injected session."""
     token = Token()
-    with pytest.raises(NotImplementedError, match="shim"):
-        token.fetch_token("user", "pass")
+    token.token = "fake-bearer"
+    session = _MobileSession()
+    pc = PostcardCreator(token, session=session)
 
+    assert pc.get_quota()["available"] is True
+    assert pc.has_free_postcard() is True
 
-def test_postcardcreator_network_methods_raise_not_implemented() -> None:
-    """``has_free_postcard``, ``send_free_card``, ``get_quota`` are stubs."""
-    token = Token()
-    token.token = "x"
-    pc = PostcardCreator(token)
+    sender = Sender(prename="F", lastname="B", street="Bahnhofstr 1", zip_code="3000", place="Bern")
+    recipient = Recipient(
+        prename="E", lastname="M", street="Hauptstr 42", zip_code="8001", place="Zürich"
+    )
+    card = Postcard(sender=sender, recipient=recipient, picture_stream=None, message="Hi")
 
-    sender = Sender(prename="a", lastname="b", street="c", zip_code="d", place="e")
-    recipient = Recipient(prename="f", lastname="g", street="h", zip_code="i", place="j")
-    card = Postcard(sender=sender, recipient=recipient, picture_stream=None)
+    # Dry-run makes no network call.
+    before = len(session.requests)
+    assert pc.send_free_card(postcard=card, mock_send=True) is False
+    assert len(session.requests) == before
 
-    with pytest.raises(NotImplementedError):
-        pc.has_free_postcard()
-
-    with pytest.raises(NotImplementedError):
-        pc.send_free_card(postcard=card, mock_send=True)
-
-    with pytest.raises(NotImplementedError):
-        pc.get_quota()
+    model = pc.send_free_card(postcard=card, mock_send=False)
+    assert model == {"orderId": "ORD-1"}
+    upload = next(r for r in session.requests if r[0] == "post" and r[1].endswith("/card/upload"))
+    body = upload[2]["json"]
+    assert set(body) >= {
+        "lang",
+        "paid",
+        "recipient",
+        "sender",
+        "text",
+        "textImage",
+        "image",
+        "stamp",
+    }
+    assert body["recipient"]["country"] == "SWITZERLAND"
+    assert upload[2]["headers"]["Authorization"] == "Bearer fake-bearer"
 
 
 def test_postcardcreator_getattr_delegates_to_stub_impl() -> None:

@@ -45,6 +45,20 @@ front-end. A postcard is a visual object, so the headline feature is
     is needed. `service.resolve_auth` / `save_to_keyring` / `check_login`
     are network-free (mock-testable except the live login probe).
 
+- **Real SwissID sending (the vendored client is no longer a stub).**
+  `postcards._vendor.postcard_creator` now ships a modernized, working
+  re-implementation of the SwissID OAuth + SAML token flow (PKCE) and
+  the Postcard Creator mobile API (`/user/quota`, `/card/upload` with
+  base64 front 1819×1311 + text-cover 720×744), using only `requests` /
+  `beautifulsoup4` / Pillow — no `Js2Py`. Both the web app and the CLI
+  `send` now reach the live service; `SwissIdConsumerBackend.login`
+  performs the real flow and maps failures to `AuthenticationError`.
+  Every network method takes an injectable session so the suite drives
+  the full flow against a fake session — the live API is **never**
+  called in tests/CI. **Caveats:** the live login can require 2FA and is
+  subject to Swiss Post anomaly detection, and the unofficial endpoints
+  can drift; a real send remains the user's manual, interactive step.
+
 ### Removed
 
 - **The Textual TUI** (`postcards tui`, the `postcards.tui` package, the
