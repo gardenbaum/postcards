@@ -55,9 +55,11 @@ front-end. A postcard is a visual object, so the headline feature is
   performs the real flow and maps failures to `AuthenticationError`.
   Every network method takes an injectable session so the suite drives
   the full flow against a fake session — the live API is **never**
-  called in tests/CI. **Caveats:** the live login can require 2FA and is
-  subject to Swiss Post anomaly detection, and the unofficial endpoints
-  can drift; a real send remains the user's manual, interactive step.
+  called in tests/CI. **Caveats:** like the upstream wrapper, this flow
+  does **not** support 2-factor auth (works only for SwissID accounts
+  that log in with e-mail + password alone; the account must have used
+  the official app once), and the unofficial endpoints can drift; a real
+  send remains the user's manual, interactive step.
 
 ### Removed
 

@@ -105,12 +105,22 @@ the card to the Swiss Post Postcard Creator mobile API — it is no longer
 a stub. The same flow backs the CLI `postcards send`.
 
 - The free tier is **one card per day** per SwissID account.
-- SwissID login uses **anomaly detection** and can require **2FA**, so a
-  live login is an **interactive, manual step** — it cannot run
-  unattended, and it may occasionally fail server-side regardless of the
-  app. This is why the test suite and CI only ever use the mock backend.
-- If a live send fails with an authentication error, retry from a normal
-  browser session / network, complete any 2FA prompt, and try again.
+- **Two-factor authentication is NOT supported.** This is a limitation of
+  the unofficial consumer flow (upstream
+  [`postcard_creator_wrapper` #40](https://github.com/abertschi/postcard_creator_wrapper/issues/40)):
+  the login performs only the e-mail + password + device-fingerprint
+  steps. It therefore works **only for SwissID accounts that can log in
+  with e-mail + password alone** (no SMS / passkey / push prompt). If your
+  account enforces a second factor, the login will fail — disable 2FA on
+  the account, or use the official business
+  [PostCard Creator API](https://developer.post.ch/en/technical-specifications-of-postcard-api)
+  instead (OAuth2 + contract; not wired in here).
+- **Prerequisite:** the account must have signed in to the official
+  Postcard Creator app at least once to activate the free tier.
+- SwissID also uses **anomaly detection**; the unofficial endpoints can
+  change server-side, so a live send may break regardless of this app.
+  That fragility is exactly why the test suite / CI only use the mock
+  backend.
 - Credentials are read from the form for the single send only. For the
   CLI, prefer environment variables or the OS keyring (see the README) —
   never commit credentials.

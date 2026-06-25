@@ -219,9 +219,11 @@ def _compose_page() -> None:
                         )
                     cred_status = ui.label("").classes("text-caption opacity-80")
                     ui.label(
-                        "Credentials resolve from env → OS keyring → config file. Live login "
-                        "can require 2FA / hit Swiss Post anomaly checks; secrets are never "
-                        "stored by the app except when you click “Save to keyring”."
+                        "Credentials resolve from env → OS keyring → config file. "
+                        "Live login does NOT support 2-factor auth — it works only for "
+                        "SwissID accounts that log in with e-mail + password alone, and "
+                        "the account must have used the official Postcard Creator app once. "
+                        "Secrets are never stored except when you click “Save to keyring”."
                     ).classes("text-caption opacity-60")
                 cred_box.set_visibility(False)
 

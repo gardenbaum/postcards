@@ -95,9 +95,14 @@ zone). Toggle **Print guides** off for a clean look. Choose the
 **Dry-run** on to validate without consuming your daily quota, then
 **Send**. See [`docs/APP.md`](docs/APP.md).
 
-> SwissID login can require 2FA and is subject to Swiss Post anomaly
-> detection, so a live send is a manual, interactive step — credentials
-> are read only for that send and never stored or committed.
+> **2-factor auth is not supported** by this unofficial flow — a live
+> send works only for SwissID accounts that log in with e-mail + password
+> alone, and the account must have used the official Postcard Creator app
+> at least once. SwissID anomaly detection / endpoint drift can also break
+> a live send, so it stays a manual step. Credentials are read only for
+> that send and never stored or committed. (For unattended/business use,
+> Swiss Post's official [PostCard Creator API](https://developer.post.ch/en/technical-specifications-of-postcard-api)
+> uses OAuth2 + a contract — not wired in here.)
 
 ## Quickstart
 

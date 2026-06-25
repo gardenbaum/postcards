@@ -167,7 +167,12 @@ class SwissIdConsumerBackend:
         try:
             token.fetch_token(username, password)
         except PostcardCreatorException as exc:
-            raise AuthenticationError(f"SwissID login failed: {exc}") from exc
+            raise AuthenticationError(
+                f"SwissID login failed: {exc}. Note: this flow does NOT support "
+                "two-factor authentication — it only works for SwissID accounts that "
+                "log in with e-mail + password alone. The account must also have signed "
+                "in to the official Postcard Creator app at least once."
+            ) from exc
         if not token.token:
             raise AuthenticationError("SwissID login did not return an access token")
         self._token = token
