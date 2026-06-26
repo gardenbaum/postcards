@@ -11,6 +11,29 @@ Releases follow the calendar-versioning rule described in
 release section verbatim, and the version bump in
 `postcards/__init__.py` is the only required code change.
 
+## [Unreleased]
+
+### Added
+
+- **Native SMS second-factor login.** SwissID accounts whose 2FA is an SMS
+  code can now log in entirely inside the app / backend — no browser
+  round-trip. The flow drives SwissID's `api-login` `nextAction` state
+  machine: e-mail + password → SwissID texts a code → enter it → token.
+  Exposed as `Token.begin_login` / `submit_second_factor`,
+  `SwissIdConsumerBackend.begin_sms_login` / `submit_sms_code`,
+  `service.begin_sms_login` / `submit_sms_code`, and a new **SMS login**
+  section in `postcards app`. The browser login (push / passkey / SMS) and
+  the direct e-mail + password path (no-2FA accounts) remain.
+  - The headless SMS step is undocumented upstream (the wrapper never
+    supported any 2FA, [#40](https://github.com/abertschi/postcard_creator_wrapper/issues/40)),
+    so the SMS challenge is **captured on the first real attempt** (surfaced
+    in the UI + logged) to finalize the exact wire format; the state machine,
+    transitions and error mapping are fully tested against a simulated
+    session (no live network).
+  - Direct e-mail + password on a 2FA account now fails with a clear
+    "requires a second factor — use the SMS or browser login" message
+    instead of a misleading "wrong password".
+
 ## [4.0.0] — 2026-06-25
 
 The release reorients `postcards` around a visual, interactive

@@ -59,9 +59,11 @@ class _UiState:
     guides: bool = True
     backend: str = "mock"
     dry_run: bool = True
-    # Browser-assisted SwissID login (for accounts with mandatory 2FA):
+    # SwissID logins for accounts with 2FA. Either path, once complete, sets
+    # ``authed_backend`` which ``do_send`` prefers over a fresh login.
     verifier: str = ""  # PKCE verifier for the in-progress browser login
-    authed_backend: PostcardBackend | None = None  # set once login completes
+    sms_backend: SwissIdConsumerBackend | None = None  # in-flight SMS login (pending code)
+    authed_backend: PostcardBackend | None = None  # set once any login completes
 
 
 @ui.page("/")
@@ -227,14 +229,74 @@ def _compose_page() -> None:
                         )
                     cred_status = ui.label("").classes("text-caption opacity-80")
                     ui.label(
-                        "Direct e-mail + password login does NOT support 2-factor auth. "
-                        "If your account has 2FA (push / passkey / SMS), use the browser "
-                        "login below instead. Secrets are never stored except via "
-                        "“Save to keyring”."
+                        "Direct e-mail + password works only for accounts without 2FA. "
+                        "If your second factor is SMS, use the SMS login below. For "
+                        "push / passkey, use the browser login. Secrets are never stored "
+                        "except via “Save to keyring”."
                     ).classes("text-caption opacity-60")
 
+                    # ---- SMS login (2FA via SMS code) ------------------------
                     ui.separator()
-                    ui.label("Browser login (works with 2FA — push / passkey / SMS)").classes(
+                    ui.label("SMS login (for 2FA via SMS code)").classes(
+                        "text-caption text-weight-medium"
+                    )
+                    ui.label(
+                        "Uses the e-mail + password above. Click Login — SwissID texts you "
+                        "a code — then enter it and Confirm."
+                    ).classes("text-caption opacity-60")
+
+                    sms_code_input = ui.input("SMS code").props("outlined dense").classes("w-full")
+                    sms_confirm_button = ui.button(
+                        "2 · Confirm SMS code", on_click=lambda: do_sms_confirm()
+                    ).props("dense")
+
+                    def _set_sms_code_visible(visible: bool) -> None:
+                        sms_code_input.set_visibility(visible)
+                        sms_confirm_button.set_visibility(visible)
+
+                    def do_sms_start() -> None:
+                        result = service.begin_sms_login(
+                            username_input.value or "", password_input.value or ""
+                        )
+                        if not result.ok:
+                            _set_sms_code_visible(False)
+                            ui.notify(result.detail, type="negative", timeout=8000)
+                            return
+                        if result.authenticated:
+                            state.authed_backend = result.backend
+                            _set_sms_code_visible(False)
+                            cred_status.set_text("✓ Authenticated (no second factor).")
+                            cred_status.classes(replace="text-caption text-green-8")
+                            ui.notify(result.detail, type="positive")
+                            return
+                        state.sms_backend = result.backend
+                        _set_sms_code_visible(True)
+                        ui.notify(result.detail, type="info", timeout=8000)
+
+                    def do_sms_confirm() -> None:
+                        if state.sms_backend is None:
+                            ui.notify("Click “Login & send SMS” first.", type="warning")
+                            return
+                        result = service.submit_sms_code(
+                            state.sms_backend, sms_code_input.value or ""
+                        )
+                        if not result.ok:
+                            ui.notify(result.detail, type="negative", timeout=8000)
+                            return
+                        state.authed_backend = result.backend
+                        _set_sms_code_visible(False)
+                        cred_status.set_text("✓ Authenticated via SMS login.")
+                        cred_status.classes(replace="text-caption text-green-8")
+                        ui.notify(result.detail, type="positive")
+
+                    ui.button("1 · Login & send SMS", on_click=lambda: do_sms_start()).props(
+                        "dense color=primary"
+                    )
+                    _set_sms_code_visible(False)
+
+                    # ---- Browser login (2FA via push / passkey) -------------
+                    ui.separator()
+                    ui.label("Browser login (works with any 2FA — push / passkey / SMS)").classes(
                         "text-caption text-weight-medium"
                     )
                     ui.label(

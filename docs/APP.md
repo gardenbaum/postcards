@@ -90,9 +90,10 @@ Toggle **Print guides** off to see the card without the overlay.
 
 - **Backend = Mock** (default): nothing is sent. Every "send" is recorded
   in-memory — ideal for trying the app out. Safe and offline.
-- **Backend = SwissID** (live): reaches the real Swiss Post service. Two
-  ways to authenticate (see below) — **browser login** (works with 2FA)
-  or direct **e-mail + password** (no-2FA accounts only).
+- **Backend = SwissID** (live): reaches the real Swiss Post service. Three
+  ways to authenticate (see below) — **SMS login** (for accounts whose
+  second factor is an SMS code), **browser login** (works with any 2FA:
+  push / passkey / SMS), or direct **e-mail + password** (no-2FA accounts).
 - **Dry-run** (on by default): validates the card with the selected
   backend *without* actually mailing it. With the live backend this
   checks the card upstream **without consuming your daily quota**. Turn it
@@ -104,9 +105,30 @@ A live send performs the **real** SwissID OAuth + SAML login and posts
 the card to the Swiss Post Postcard Creator mobile API. The same engine
 backs the CLI `postcards send`.
 
-**Browser login (recommended — works with any 2FA: push / passkey / SMS).**
-Because SwissID's 2-factor step cannot be automated headlessly, the app
-hands the login to your real browser:
+**SMS login (recommended if your second factor is an SMS code).** An SMS
+code is the one second factor that can be entered directly in the app — you
+just read it off your phone and type it in:
+
+1. Enter your SwissID **e-mail + password** above, then click
+   **1 · Login & send SMS**. The app submits them and SwissID texts you a
+   code.
+2. Type the code into **SMS code** and click **2 · Confirm SMS code**. The
+   app finishes the login (`api-login` → SAML → token) and is authenticated.
+   Send as usual.
+
+Push and passkey *cannot* be answered headlessly (there is nothing to type),
+so for those use the browser login below.
+
+> **Note on SMS support.** No public client has ever implemented SwissID's
+> headless SMS step — its exact wire format is undocumented. This app drives
+> the documented `api-login` state machine and finalizes the SMS step from
+> the real challenge it captures on your **first** attempt (surfaced in the
+> app and logged). If the first try doesn't complete, the captured challenge
+> is exactly what's needed to finish wiring it — report it. The browser login
+> always works as a fallback.
+
+**Browser login (works with any 2FA: push / passkey / SMS).** The app hands
+the login to your real browser, so any second factor works:
 
 1. Click **1 · Open SwissID login** — a new tab opens the SwissID login.
 2. Log in and **approve the push in your SwissID app** (or passkey / SMS).
@@ -120,7 +142,7 @@ hands the login to your real browser:
 **only for accounts without 2FA** — the upstream consumer flow never
 supported an interactive second factor
 ([`postcard_creator_wrapper` #40](https://github.com/abertschi/postcard_creator_wrapper/issues/40)).
-If your account enforces 2FA, use the browser login above.
+If your account enforces 2FA, use the SMS or browser login above.
 
 Other notes:
 

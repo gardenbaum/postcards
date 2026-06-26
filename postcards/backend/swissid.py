@@ -63,7 +63,7 @@ from postcards.retry import RetryPolicy, default_classifier, with_retries
 if TYPE_CHECKING:
     # Imported only for type checking; the runtime imports live inside
     # the methods so importing this module never pulls the shim in.
-    from postcards._vendor.postcard_creator.postcard_creator import Token  # noqa: F401
+    from postcards._vendor.postcard_creator.postcard_creator import Token
     from postcards.models.postcard import Postcard
 
 #: Module-level logger. Routes through :mod:`postcards.log`'s
@@ -137,6 +137,9 @@ class SwissIdConsumerBackend:
         # ``self._token`` is set by :meth:`login`. The backend is
         # not usable until that has happened.
         self._token: object | None = None
+        # Holds the in-flight Token during an interactive SMS login (set by
+        # begin_sms_login, consumed by submit_sms_code).
+        self._login_token: Token | None = None
         self._account: str = ""
         self._retry_policy = retry_policy or _DEFAULT_RETRY_POLICY
         self._classifier = classifier
@@ -218,6 +221,73 @@ class SwissIdConsumerBackend:
         self._token = token
         self._account = "swissid"
         _LOGGER.info("authenticated via browser-assisted login")
+
+    # ------------------------------------------------------------------
+    # Native SMS / second-factor login (interactive, for 2FA accounts)
+    # ------------------------------------------------------------------
+
+    def begin_sms_login(self, username: str, password: str, *, session: object = None) -> bool:
+        """Start an interactive SwissID login; return ``True`` if already done.
+
+        Submits e-mail + password and runs the anomaly step. Returns ``True``
+        when the account has no second factor (the backend is authenticated and
+        ready to :meth:`send`). Returns ``False`` when an SMS code is required —
+        SwissID has texted it; pass it to :meth:`submit_sms_code`. The captured
+        challenge is exposed via :attr:`second_factor_prompt` /
+        :attr:`second_factor_info`. Maps failures to :class:`AuthenticationError`.
+        """
+        from postcards._vendor.postcard_creator import Token
+        from postcards._vendor.postcard_creator.postcard_creator import PostcardCreatorException
+
+        token = Token()
+        try:
+            step = token.begin_login(username, password, session=session)
+        except PostcardCreatorException as exc:
+            raise AuthenticationError(f"SwissID login failed: {exc}") from exc
+
+        self._login_token = token
+        self._account = username
+        if step == "AUTHENTICATED":
+            if not token.token:
+                raise AuthenticationError("SwissID login did not return an access token")
+            self._token = token
+            _LOGGER.info("authenticated as %s (no second factor)", username)
+            return True
+        _LOGGER.info("SwissID second factor required for %s", username)
+        return False
+
+    def submit_sms_code(self, code: str, *, session: object = None) -> None:
+        """Finish an SMS login started by :meth:`begin_sms_login`.
+
+        Leaves the backend authenticated. Maps failures (no pending login,
+        wrong / expired code, unexpected wire format) to
+        :class:`AuthenticationError`.
+        """
+        from postcards._vendor.postcard_creator.postcard_creator import PostcardCreatorException
+
+        token = self._login_token
+        if token is None:
+            raise AuthenticationError("no pending SwissID login; call begin_sms_login() first")
+        try:
+            token.submit_second_factor(code, session=session)
+        except PostcardCreatorException as exc:
+            raise AuthenticationError(f"SwissID SMS code rejected: {exc}") from exc
+        if not token.token:
+            raise AuthenticationError("SwissID login did not return an access token")
+        self._token = token
+        _LOGGER.info("authenticated as %s via SMS second factor", self._account)
+
+    @property
+    def second_factor_prompt(self) -> str:
+        """Type of the pending second-factor challenge (e.g. for the UI)."""
+        token = self._login_token
+        return getattr(token, "second_factor_prompt", "") if token is not None else ""
+
+    @property
+    def second_factor_info(self) -> dict | None:
+        """Raw captured second-factor challenge, for diagnostics / finalizing."""
+        token = self._login_token
+        return getattr(token, "second_factor", None) if token is not None else None
 
     def quota(self) -> QuotaInfo:
         """Return the quota for the authenticated account.

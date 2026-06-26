@@ -24,7 +24,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from postcards.backend.base import AddressSpec, PostcardBackend
 from postcards.config import (
@@ -37,6 +37,9 @@ from postcards.config import (
 from postcards.image import Orientation, prepare_postcard_image
 from postcards.models import Message, Postcard
 from postcards.models.message import MAX_MESSAGE_LENGTH
+
+if TYPE_CHECKING:
+    from postcards.backend.swissid import SwissIdConsumerBackend
 
 
 def _empty_address() -> AddressSpec:
@@ -297,6 +300,78 @@ def complete_browser_login(
     return backend
 
 
+@dataclass(frozen=True)
+class SmsLoginState:
+    """Result of an SMS-login step, in UI-friendly form.
+
+    ``backend`` carries the in-flight login (cookies, pending ``authId``) and
+    must be passed back to :func:`submit_sms_code`. When ``authenticated`` is
+    true it is ready for :func:`send_draft`; when ``needs_code`` is true the
+    user must enter the SMS code SwissID just sent.
+    """
+
+    backend: SwissIdConsumerBackend
+    ok: bool
+    authenticated: bool = False
+    needs_code: bool = False
+    prompt: str = ""
+    detail: str = ""
+
+
+def begin_sms_login(username: str, password: str, *, session: Any = None) -> SmsLoginState:
+    """Start a native SwissID login (e-mail + password → SMS code).
+
+    Never raises: any auth failure is returned as ``ok=False`` with a detail
+    message so the UI can show it. On success either ``authenticated`` (no 2FA)
+    or ``needs_code`` (SMS code required) is set.
+    """
+    from postcards.backend import SwissIdConsumerBackend
+
+    backend = SwissIdConsumerBackend()
+    if not username or not password:
+        return SmsLoginState(
+            backend=backend, ok=False, detail="Enter a SwissID e-mail and password first."
+        )
+    try:
+        done = backend.begin_sms_login(username, password, session=session)
+    except Exception as exc:
+        return SmsLoginState(backend=backend, ok=False, detail=str(exc))
+    if done:
+        return SmsLoginState(
+            backend=backend, ok=True, authenticated=True, detail="Login OK — no second factor."
+        )
+    return SmsLoginState(
+        backend=backend,
+        ok=True,
+        needs_code=True,
+        prompt=backend.second_factor_prompt,
+        detail="SwissID sent an SMS code — enter it to finish logging in.",
+    )
+
+
+def submit_sms_code(
+    backend: SwissIdConsumerBackend, code: str, *, session: Any = None
+) -> SmsLoginState:
+    """Finish an SMS login by submitting ``code`` to the pending ``backend``.
+
+    Never raises: a rejected / expired code comes back as ``ok=False``.
+    """
+    if not code.strip():
+        return SmsLoginState(
+            backend=backend, ok=False, needs_code=True, detail="Enter the SMS code."
+        )
+    try:
+        backend.submit_sms_code(code, session=session)
+    except Exception as exc:
+        return SmsLoginState(backend=backend, ok=False, needs_code=True, detail=str(exc))
+    return SmsLoginState(
+        backend=backend,
+        ok=True,
+        authenticated=True,
+        detail="SMS login complete — you can send now.",
+    )
+
+
 def send_draft(
     draft: PostcardDraft,
     *,
@@ -371,7 +446,9 @@ __all__ = [
     "LoginCheck",
     "PostcardDraft",
     "SendOutcome",
+    "SmsLoginState",
     "begin_browser_login",
+    "begin_sms_login",
     "build_postcard",
     "check_login",
     "complete_browser_login",
@@ -380,6 +457,7 @@ __all__ = [
     "resolve_auth",
     "save_to_keyring",
     "send_draft",
+    "submit_sms_code",
     "validate_draft",
     "with_recipient_field",
     "with_sender_field",

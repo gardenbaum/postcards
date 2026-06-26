@@ -29,12 +29,14 @@ it can break server-side. A live login is the user's manual, interactive step.
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import hashlib
 import logging
 import re
 import secrets
 import urllib.parse
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -86,6 +88,41 @@ def extract_authorization_code(pasted: str) -> str:
     return text
 
 
+def _redact(payload: Any) -> Any:
+    """Return a deep copy of a login payload with token-ish values masked.
+
+    Used only for logging the captured second-factor ``nextAction`` so we can
+    finalize the (publicly undocumented) SMS step without leaking the
+    short-lived ``authId``.
+    """
+    try:
+        data = copy.deepcopy(payload)
+    except Exception:
+        return {}
+    if isinstance(data, dict):
+        tokens = data.get("tokens")
+        if isinstance(tokens, dict):
+            data["tokens"] = dict.fromkeys(tokens, "***")
+    return data
+
+
+@dataclass
+class _PendingLogin:
+    """In-flight SwissID login waiting for a second factor (e.g. SMS code).
+
+    Captured by :meth:`Token.begin_login` when the ``api-login`` state machine
+    stops at a 2FA challenge, and consumed by
+    :meth:`Token.submit_second_factor`.
+    """
+
+    session: Any
+    qs: str
+    verifier: str
+    auth_id: str
+    next_action: dict[str, Any]
+    raw: dict[str, Any]
+
+
 class Token:
     """Holds an authenticated Swiss Post access token.
 
@@ -109,6 +146,13 @@ class Token:
         self.token_fetched_at: datetime.datetime | None = None
         self.token_implementation: str | None = None
         self.cache_token: bool = False
+
+        #: Set by :meth:`begin_login` when an SMS / second factor is required;
+        #: the raw ``nextAction`` is also exposed so the app can show it and we
+        #: can finalize the (undocumented) SMS wire format from a real attempt.
+        self._pending: _PendingLogin | None = None
+        self.second_factor: dict[str, Any] | None = None
+        self.second_factor_prompt: str = ""
 
     # ------------------------------------------------------------------
     # Public API
@@ -175,16 +219,7 @@ class Token:
             except Exception as exc:
                 raise PostcardCreatorException(f"swissid authentication failed: {exc}") from exc
 
-        try:
-            self.token = access_token["access_token"]
-            self.token_type = access_token.get("token_type")
-            self.token_expires_in = access_token.get("expires_in")
-            self.token_fetched_at = datetime.datetime.now()
-            self.token_implementation = implementation
-        except Exception as exc:
-            raise PostcardCreatorException(
-                f"token response missing fields: {access_token}"
-            ) from exc
+        self._store_token(access_token, implementation)
 
     # ------------------------------------------------------------------
     # Browser-assisted login (works with any SwissID 2FA, incl. push/passkey)
@@ -209,14 +244,105 @@ class Token:
         :class:`PostcardCreatorException` on failure.
         """
         body = self._exchange_code_for_token(session or self._create_session(), code, code_verifier)
-        try:
-            self.token = body["access_token"]
-            self.token_type = body.get("token_type")
-            self.token_expires_in = body.get("expires_in")
-            self.token_fetched_at = datetime.datetime.now()
-            self.token_implementation = "swissid-browser"
-        except Exception as exc:
-            raise PostcardCreatorException(f"token response missing fields: {body}") from exc
+        self._store_token(body, "swissid-browser")
+
+    # ------------------------------------------------------------------
+    # Native SMS / second-factor login (interactive, in-app)
+    # ------------------------------------------------------------------
+
+    def begin_login(
+        self,
+        username: str | None,
+        password: str | None,
+        *,
+        session: Any = None,
+    ) -> str:
+        """Start an interactive SwissID login; return the next required step.
+
+        Runs the ``api-login`` flow up to and including the device-print
+        anomaly step, then inspects the server's ``nextAction``:
+
+        * ``"AUTHENTICATED"`` — no second factor; the access token is already
+          stored on ``self`` (``send`` / ``quota`` work immediately).
+        * ``"SECOND_FACTOR"`` — the account needs a second factor (SMS code).
+          SwissID has sent the code; call :meth:`submit_second_factor` with it.
+          The raw challenge is exposed via :attr:`second_factor` /
+          :attr:`second_factor_prompt`.
+
+        Only SMS can be completed in-app: push / passkey cannot be answered
+        headlessly (use :meth:`build_authorize_url` browser login for those).
+        Raises :class:`PostcardCreatorException` on bad credentials.
+        """
+        if username is None or password is None:
+            raise PostcardCreatorException("No username/ password given")
+        session = session or self._create_session()
+        self._pending = None
+        self.second_factor = None
+        self.second_factor_prompt = ""
+
+        verifier, challenge = self._pkce()
+        qs, resp = self._swissid_until_anomaly(session, username, password, challenge)
+        next_action = self._next_action(resp)
+
+        if next_action.get("successUrl"):
+            body = self._complete_after_authenticated(session, resp, verifier)
+            self._store_token(body, "swissid")
+            return "AUTHENTICATED"
+
+        auth_id = self._auth_id(resp) or ""
+        if not next_action and not auth_id:
+            raise PostcardCreatorException("failed to login, username/password wrong?")
+
+        # A second factor is required. We do not know the exact SMS wire format
+        # (it is documented nowhere — the upstream wrapper never did 2FA), so we
+        # capture the raw challenge for the UI and for finalizing the step.
+        self._pending = _PendingLogin(
+            session=session,
+            qs=qs,
+            verifier=verifier,
+            auth_id=auth_id,
+            next_action=next_action,
+            raw=self._json(resp),
+        )
+        self.second_factor = self._json(resp)
+        self.second_factor_prompt = str(next_action.get("type") or "second factor")
+        logger.warning(
+            "SwissID second-factor challenge reached (type=%s); nextAction=%s",
+            self.second_factor_prompt,
+            _redact(self.second_factor),
+        )
+        return "SECOND_FACTOR"
+
+    def submit_second_factor(self, code: str, *, session: Any = None) -> None:
+        """Submit the SMS code for a login started by :meth:`begin_login`.
+
+        On success the access token is stored on ``self``. Raises
+        :class:`PostcardCreatorException` if there is no pending login or the
+        code is rejected; the rejection message embeds the (redacted) server
+        response so an unexpected wire format can be reported and finalized.
+        """
+        if self._pending is None:
+            raise PostcardCreatorException("no pending login; call begin_login() first")
+        pending = self._pending
+        sess = session or pending.session
+
+        code = (code or "").strip()
+        if not code:
+            raise PostcardCreatorException("no SMS code provided")
+
+        resp = self._post_second_factor(sess, pending, code)
+        if not self._next_action(resp).get("successUrl"):
+            # The OTP step may be followed by a (repeat) device-print round.
+            resp = self._drive_known(sess, resp, pending.qs)
+        if not self._next_action(resp).get("successUrl"):
+            raise PostcardCreatorException(
+                f"second factor not accepted: {_redact(self._json(resp))}"
+            )
+
+        body = self._complete_after_authenticated(sess, resp, pending.verifier)
+        self._store_token(body, "swissid-2fa")
+        self._pending = None
+        self.second_factor = None
 
     # ------------------------------------------------------------------
     # Internals
@@ -304,6 +430,27 @@ class Token:
 
     def _access_token_swissid(self, session: Any, username: str, password: str) -> dict[str, Any]:
         verifier, challenge = self._pkce()
+        _qs, resp = self._swissid_until_anomaly(session, username, password, challenge)
+        next_action = self._next_action(resp)
+        if not next_action.get("successUrl"):
+            if next_action.get("type") or self._auth_id(resp):
+                raise PostcardCreatorException(
+                    "this SwissID account requires a second factor (2FA); use the SMS or "
+                    "browser login instead of direct e-mail + password"
+                )
+            raise PostcardCreatorException("failed to login, username/password wrong?")
+        return self._complete_after_authenticated(session, resp, verifier)
+
+    def _swissid_until_anomaly(
+        self, session: Any, username: str, password: str, challenge: str
+    ) -> tuple[str, Any]:
+        """Run authorize → IdP → init → basic → device-print.
+
+        Returns ``(qs, response)`` where ``response`` is the server's reply to
+        the device-print step — either authenticated (``nextAction.successUrl``)
+        or a second-factor challenge. Shared by the direct, SMS and (indirectly)
+        legacy paths so the request ordering lives in one place.
+        """
         session.get(
             "https://pccweb.api.post.ch/OAuth/authorization?" + self._authorize_query(challenge),
             allow_redirects=True,
@@ -354,13 +501,13 @@ class Token:
             allow_redirects=True,
         )
 
-        resp = self._anomaly_detection(session, resp, qs)
+        return qs, self._anomaly_detection(session, resp, qs)
 
-        try:
-            success_url = resp.json()["nextAction"]["successUrl"]
-        except Exception as exc:
-            raise PostcardCreatorException("failed to login, username/password wrong?") from exc
-
+    def _complete_after_authenticated(
+        self, session: Any, resp: Any, verifier: str
+    ) -> dict[str, Any]:
+        """Finish an authenticated flow: successUrl → SAML assertion → token."""
+        success_url = self._next_action(resp)["successUrl"]
         resp = session.get(success_url, headers=self.swissid_headers, allow_redirects=True)
         form_action = BeautifulSoup(resp.text, "html.parser").find("form", {"name": "LoginForm"})
         if form_action is None:
@@ -370,6 +517,81 @@ class Token:
         soup = BeautifulSoup(resp.text, "html.parser")
         code = self._saml_to_code(session, soup)
         return self._exchange_code_for_token(session, code, verifier)
+
+    # -- second-factor (SMS) helpers ----------------------------------
+    #
+    # The exact api-login SMS step is undocumented; these are the best
+    # reconstruction of the `nextAction`-driven state machine and are written
+    # to be finalized from the raw challenge captured on the first real attempt
+    # (see Token.begin_login). If the captured nextAction carries an explicit
+    # endpoint we use it; otherwise we fall back to a provisional path.
+
+    def _post_second_factor(self, session: Any, pending: _PendingLogin, code: str) -> Any:
+        """POST the SMS ``code`` to the second-factor endpoint."""
+        headers = dict(self.swissid_headers)
+        if pending.auth_id:
+            headers["authId"] = pending.auth_id
+        return session.post(
+            self._second_factor_url(pending),
+            json={"code": code},
+            headers=headers,
+            allow_redirects=True,
+        )
+
+    def _second_factor_url(self, pending: _PendingLogin) -> str:
+        """Resolve the endpoint for submitting the SMS code.
+
+        Prefers an explicit URL/path embedded in the captured ``nextAction``;
+        otherwise uses a provisional path (finalized from a real capture).
+        """
+        for key in ("url", "href", "endpoint", "actionUrl", "submitUrl"):
+            value = pending.next_action.get(key)
+            if isinstance(value, str) and value:
+                return value if value.startswith("http") else f"https://login.swissid.ch{value}"
+        return f"https://login.swissid.ch/api-login/authenticate/otp?{pending.qs}"
+
+    def _drive_known(self, session: Any, resp: Any, qs: str) -> Any:
+        """Advance one known intermediate step (a repeat device-print) if present."""
+        next_action = self._next_action(resp)
+        if next_action.get("successUrl"):
+            return resp
+        if next_action.get("type") == "SEND_DEVICE_PRINT" or self._auth_id(resp):
+            try:
+                return self._anomaly_detection(session, resp, qs)
+            except PostcardCreatorException:
+                return resp
+        return resp
+
+    # -- small response accessors -------------------------------------
+
+    def _store_token(self, body: dict[str, Any], implementation: str) -> None:
+        """Store an access-token response on ``self`` (shared by all paths)."""
+        try:
+            self.token = body["access_token"]
+            self.token_type = body.get("token_type")
+            self.token_expires_in = body.get("expires_in")
+            self.token_fetched_at = datetime.datetime.now()
+            self.token_implementation = implementation
+        except Exception as exc:
+            raise PostcardCreatorException(f"token response missing fields: {body}") from exc
+
+    def _json(self, resp: Any) -> dict[str, Any]:
+        """Best-effort JSON body of ``resp`` (``{}`` when not JSON)."""
+        try:
+            data = resp.json()
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _next_action(self, resp: Any) -> dict[str, Any]:
+        """The ``nextAction`` object of an api-login response (``{}`` if absent)."""
+        next_action = self._json(resp).get("nextAction")
+        return next_action if isinstance(next_action, dict) else {}
+
+    def _auth_id(self, resp: Any) -> str | None:
+        """The ``tokens.authId`` of an api-login response, if present."""
+        tokens = self._json(resp).get("tokens")
+        return tokens.get("authId") if isinstance(tokens, dict) else None
 
     def _anomaly_detection(self, session: Any, prev_response: Any, qs: str) -> Any:
         """SwissID device-print anomaly step (introduced 2022-10).
